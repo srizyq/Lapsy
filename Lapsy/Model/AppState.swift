@@ -17,4 +17,6 @@ final class AppState {
     /// The run in progress (or about to start / just finished).
     var session: RunSession?
     let location = LocationProvider()
+    /// Kept here so the generated route and start point survive tab switches.
+    let generator = GeneratorModel()
 }

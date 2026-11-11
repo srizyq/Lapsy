@@ -4,7 +4,8 @@ import MapKit
 struct GeneratorScreen: View {
     @Environment(AppState.self) private var app
     @Environment(RunStore.self) private var store
-    @State private var model = GeneratorModel()
+    private var model: GeneratorModel { app.generator }
+    private var bound: Bindable<GeneratorModel> { Bindable(app.generator) }
     @State private var camera: MapCameraPosition = .automatic
     @State private var showStartSheet = false
 
@@ -51,6 +52,9 @@ struct GeneratorScreen: View {
             }
         }
         .onAppear {
+            if model.usingCurrentLocation, let c = app.location.coordinate {
+                model.start = StartPoint(name: "Current location", coordinate: c)
+            }
             recenter()
             app.location.request()
             #if DEBUG
@@ -218,7 +222,7 @@ struct GeneratorScreen: View {
                     .font(Typeface.label(11))
                     .foregroundStyle(Palette.textSecondary)
             }
-            Slider(value: $model.lengthKm, in: model.lengthRange, step: 0.5)
+            Slider(value: bound.lengthKm, in: model.lengthRange, step: 0.5)
                 .tint(Palette.primary)
 
             MonoLabel("Route shape")
@@ -238,7 +242,7 @@ struct GeneratorScreen: View {
             }
 
             MonoLabel("Avoid")
-            toggleRow("Steps", isOn: $model.avoidSteps)
+            toggleRow("Steps", isOn: bound.avoidSteps)
 
             Button {
                 Task { await generate() }
@@ -359,7 +363,7 @@ struct GeneratorScreen: View {
             }
 
             MonoLabel("Elevation")
-            ElevationChart(points: model.profilePoints, scrub: $model.scrubIndex)
+            ElevationChart(points: model.profilePoints, scrub: bound.scrubIndex)
                 .frame(height: 150)
 
             MonoLabel("Surface")

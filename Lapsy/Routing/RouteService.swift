@@ -147,12 +147,18 @@ struct RouteService {
     }
 
     private static func errorMessage(from data: Data, status: Int) -> String {
+        if status == 403 || status == 429 {
+            return "Route making is very busy right now. Please try again in a little while."
+        }
+        if status >= 500 {
+            return "The route service is having trouble. Please try again in a moment."
+        }
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = json["error"] as? [String: Any],
            let message = error["message"] as? String {
-            return "Routing error \(status): \(message)"
+            return "Couldn't make a route: \(message)"
         }
-        return "Routing error \(status)"
+        return "Couldn't make a route. Please try again."
     }
 
     private static func parse(_ data: Data) throws -> GeneratedRoute {

@@ -1,0 +1,240 @@
+import CoreLocation
+import UIKit
+import Observation
+
+/// One run from "ready" to "finished": GPS tracking, the clock, pace, route following
+/// and rerouting. Background location is enabled while a run is active.
+@MainActor @Observable
+final class RunSession: NSObject, CLLocationManagerDelegate {
+    enum Phase { case ready, running, paused, finished }
+
+    let activity: Activity
+    let startName: String
+    let profile: RoutingProfile?
+
+    private(set) var route: GeneratedRoute?
+    private(set) var phase: Phase = .ready
+    private(set) var current: CLLocation?
+    private(set) var breadcrumb: [CLLocationCoordinate2D] = []
+    private(set) var distanceM = 0.0
+    private(set) var nav = NavigationState()
+    private(set) var statusNote: String?
+    private(set) var denied = false
+    private(set) var rerouteCount = 0
+
+    @ObservationIgnored private let manager = CLLocationManager()
+    @ObservationIgnored private var engine: NavigationEngine?
+    @ObservationIgnored private var elapsedBase: TimeInterval = 0
+    @ObservationIgnored private var resumedAt: Date?
+    @ObservationIgnored private var lastAccepted: CLLocation?
+    @ObservationIgnored private var recent: [(time: Date, distance: Double)] = []
+    @ObservationIgnored private var offRouteCount = 0
+    @ObservationIgnored private var lastRerouteAt = Date.distantPast
+    @ObservationIgnored private var rerouting = false
+    @ObservationIgnored private var hapticStep: Int?
+
+    init(planned: PlannedRoute) {
+        activity = planned.activity
+        startName = planned.startName
+        profile = planned.profile
+        route = planned.route
+        super.init()
+        if let route = planned.route { engine = NavigationEngine(route: route) }
+
+        manager.delegate = self
+        manager.activityType = activity.group == .wheels ? .otherNavigation : .fitness
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = 5
+        manager.pausesLocationUpdatesAutomatically = false
+
+        switch manager.authorizationStatus {
+        case .notDetermined: manager.requestWhenInUseAuthorization()
+        case .denied, .restricted: denied = true
+        default: manager.startUpdatingLocation()
+        }
+    }
+
+    // MARK: - Derived values
+
+    func elapsed(at date: Date = Date()) -> TimeInterval {
+        elapsedBase + (resumedAt.map { date.timeIntervalSince($0) } ?? 0)
+    }
+
+    /// Recent pace in seconds per km, from the last ~30 seconds of movement.
+    var paceSecPerKm: Double? {
+        guard let first = recent.first, let last = recent.last, last.time > first.time else { return nil }
+        let meters = last.distance - first.distance
+        guard meters > 5 else { return nil }
+        return last.time.timeIntervalSince(first.time) / (meters / 1000)
+    }
+
+    var speedKmh: Double? { paceSecPerKm.map { 3600 / $0 } }
+
+    var energyKcal: Double { activity.kcalPerKmPerKg * 70 * distanceM / 1000 }
+
+    var routeTotalM: Double { engine?.totalM ?? 0 }
+
+    /// Straight-line distance from the runner to where the route begins.
+    var distanceToStartM: Double? {
+        guard let here = current, let first = route?.coordinates.first else { return nil }
+        return here.distance(from: CLLocation(latitude: first.latitude, longitude: first.longitude))
+    }
+
+    var averagePaceSecPerKm: Double? {
+        let t = elapsed()
+        return distanceM > 50 && t > 0 ? t / (distanceM / 1000) : nil
+    }
+
+    // MARK: - Controls
+
+    func begin() {
+        guard phase == .ready else { return }
+        phase = .running
+        distanceM = 0
+        breadcrumb = []
+        recent = []
+        lastAccepted = nil
+        elapsedBase = 0
+        resumedAt = Date()
+        manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = true
+        manager.startUpdatingLocation()
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    func pause() {
+        guard phase == .running else { return }
+        elapsedBase = elapsed()
+        resumedAt = nil
+        lastAccepted = nil
+        phase = .paused
+    }
+
+    func resume() {
+        guard phase == .paused else { return }
+        resumedAt = Date()
+        phase = .running
+    }
+
+    func finish() {
+        guard phase == .running || phase == .paused else { return }
+        elapsedBase = elapsed()
+        resumedAt = nil
+        phase = .finished
+        teardown()
+    }
+
+    /// Leave without saving (from the ready screen, or after the summary).
+    func close() {
+        teardown()
+    }
+
+    private func teardown() {
+        manager.stopUpdatingLocation()
+        manager.allowsBackgroundLocationUpdates = false
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    // MARK: - Location updates
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            switch status {
+            case .authorizedWhenInUse, .authorizedAlways:
+                denied = false
+                self.manager.startUpdatingLocation()
+            case .denied, .restricted:
+                denied = true
+            default:
+                break
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in handle(locations) }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+
+    private func handle(_ locations: [CLLocation]) {
+        for location in locations {
+            // Ignore fixes that are invalid or too imprecise to trust.
+            guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 50 else { continue }
+            current = location
+            guard phase == .running else { continue }
+
+            if let last = lastAccepted {
+                let step = location.distance(from: last)
+                // Below ~2 m is GPS jitter while standing still.
+                if step >= 2 {
+                    distanceM += step
+                    lastAccepted = location
+                    breadcrumb.append(location.coordinate)
+                    recent.append((location.timestamp, distanceM))
+                    recent.removeAll { location.timestamp.timeIntervalSince($0.time) > 30 }
+                }
+            } else {
+                lastAccepted = location
+                breadcrumb.append(location.coordinate)
+                recent.append((location.timestamp, distanceM))
+            }
+            follow(location)
+        }
+    }
+
+    // MARK: - Following and rerouting
+
+    private func follow(_ location: CLLocation) {
+        guard var engine else { return }
+        let state = engine.update(location.coordinate)
+        self.engine = engine
+        nav = state
+
+        if state.arrived {
+            statusNote = "You've arrived"
+            return
+        }
+
+        // One tap of feedback as each turn gets close.
+        if let index = state.nextStepIndex, let toNext = state.distanceToNextM,
+           toNext < 40, hapticStep != index {
+            hapticStep = index
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+
+        // Off the route for several fixes in a row means a real detour, not GPS noise.
+        offRouteCount = state.offRouteM > 35 ? offRouteCount + 1 : 0
+        if offRouteCount >= 3, !rerouting, Date().timeIntervalSince(lastRerouteAt) > 20 {
+            Task { await reroute(from: location.coordinate, state: state) }
+        }
+    }
+
+    private func reroute(from here: CLLocationCoordinate2D, state: NavigationState) async {
+        guard let route, let engine, let profile else { return }
+        rerouting = true
+        lastRerouteAt = Date()
+        statusNote = "Off route. Finding a way back..."
+        defer { rerouting = false }
+
+        // Rejoin the original route about 200 m ahead of the nearest point.
+        let target = state.distanceAlongM + 200
+        let rejoin = engine.cumulative.firstIndex(where: { $0 >= target }) ?? (route.coordinates.count - 1)
+        do {
+            let detour = try await RouteService().route(
+                through: [here, route.coordinates[rejoin]],
+                profile: profile
+            )
+            let merged = RouteReroute.merge(detour: detour, original: route, rejoin: rejoin)
+            self.route = merged
+            self.engine = NavigationEngine(route: merged)
+            offRouteCount = 0
+            hapticStep = nil
+            rerouteCount += 1
+            statusNote = nil
+        } catch {
+            statusNote = "Can't reroute right now"
+        }
+    }
+}

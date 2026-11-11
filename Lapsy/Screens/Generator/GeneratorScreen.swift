@@ -44,7 +44,10 @@ struct GeneratorScreen: View {
             app.location.request()
             #if DEBUG
             if ProcessInfo.processInfo.environment["LAPSY_AUTOGEN"] == "1" {
-                Task { await generate() }
+                Task {
+                    await generate()
+                    debugAfterGenerate()
+                }
             }
             #endif
         }
@@ -399,12 +402,7 @@ struct GeneratorScreen: View {
 
     private var startButton: some View {
         Button {
-            app.planned = PlannedRoute(
-                activity: model.activity,
-                route: model.activity.canRoute ? model.route : nil,
-                startName: model.start.name
-            )
-            app.tab = .liveRun
+            startRun()
         } label: {
             Text(model.activity.canRoute ? "Start run" : "Start \(model.activity.name.lowercased())")
         }
@@ -417,6 +415,32 @@ struct GeneratorScreen: View {
         await model.generate()
         if let route = model.route { fit(route) }
     }
+
+    private func startRun() {
+        app.session?.close()
+        app.session = RunSession(planned: PlannedRoute(
+            activity: model.activity,
+            route: model.activity.canRoute ? model.route : nil,
+            profile: model.profile,
+            startName: model.start.name
+        ))
+        app.tab = .liveRun
+    }
+
+    #if DEBUG
+    /// Test hooks: LAPSY_DUMP_ROUTE=/path writes the route as [[lat, lon]] JSON,
+    /// LAPSY_AUTORUN=1 starts the run straight away.
+    private func debugAfterGenerate() {
+        let env = ProcessInfo.processInfo.environment
+        if let path = env["LAPSY_DUMP_ROUTE"], let route = model.route {
+            let json = route.coordinates.map { [$0.latitude, $0.longitude] }
+            if let data = try? JSONSerialization.data(withJSONObject: json) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        }
+        if env["LAPSY_AUTORUN"] == "1" { startRun() }
+    }
+    #endif
 
     private func recenter() {
         camera = .region(

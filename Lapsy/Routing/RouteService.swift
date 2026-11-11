@@ -9,9 +9,6 @@ enum RoutingProfile: String, CaseIterable {
     case cyclingMountain = "cycling-mountain"
     case cyclingElectric = "cycling-electric"
     case wheelchair = "wheelchair"
-
-    /// Green and quiet-street weightings only exist on the foot profiles.
-    var isFoot: Bool { self == .footWalking || self == .footHiking }
 }
 
 struct SurfaceMix {
@@ -29,6 +26,20 @@ struct SurfaceMix {
     }
 }
 
+/// One turn instruction. The maneuver happens at `startIndex`, then the route
+/// continues along `name` until `endIndex`.
+struct RouteStep {
+    var instruction: String
+    var name: String
+    var distanceM: Double
+    /// ORS maneuver code: 0 left, 1 right, 2 sharp left, 3 sharp right, 4 slight left,
+    /// 5 slight right, 6 straight, 7 roundabout, 8 exit roundabout, 9 u-turn,
+    /// 10 arrive, 11 depart, 12 keep left, 13 keep right.
+    var type: Int
+    var startIndex: Int
+    var endIndex: Int
+}
+
 struct GeneratedRoute {
     var coordinates: [CLLocationCoordinate2D]
     var elevations: [Double]
@@ -36,9 +47,11 @@ struct GeneratedRoute {
     var durationS: Double
     var ascentM: Double
     var surface: SurfaceMix
-    var stepCount: Int
+    var steps: [RouteStep] = []
     var score: RouteScore = .zero
     var seed: Int = 0
+
+    var stepCount: Int { steps.count }
 }
 
 enum RouteError: LocalizedError {
@@ -54,7 +67,7 @@ enum RouteError: LocalizedError {
 }
 
 /// Dev-only direct client. The shipped app will call a Supabase edge function
-/// with the same request shape, so the key stays on the server.
+/// with the same request shapes, so the key stays on the server.
 struct RouteService {
     func generateLoop(
         start: CLLocationCoordinate2D,
@@ -64,6 +77,41 @@ struct RouteService {
         points: Int = 3,
         options: RouteOptions = RouteOptions()
     ) async throws -> GeneratedRoute {
+        var apiOptions: [String: Any] = [
+            "round_trip": ["length": lengthM, "points": points, "seed": seed]
+        ]
+        if options.avoidSteps {
+            apiOptions["avoid_features"] = ["steps"]
+        }
+        return try await send(
+            body: [
+                "coordinates": [[start.longitude, start.latitude]],
+                "options": apiOptions,
+                "elevation": true,
+                "extra_info": ["surface"],
+                "instructions": true,
+            ],
+            profile: profile
+        )
+    }
+
+    /// Directions through two or more points, used to reroute back onto a route.
+    func route(
+        through points: [CLLocationCoordinate2D],
+        profile: RoutingProfile
+    ) async throws -> GeneratedRoute {
+        try await send(
+            body: [
+                "coordinates": points.map { [$0.longitude, $0.latitude] },
+                "elevation": true,
+                "extra_info": ["surface"],
+                "instructions": true,
+            ],
+            profile: profile
+        )
+    }
+
+    private func send(body: [String: Any], profile: RoutingProfile) async throws -> GeneratedRoute {
         let key = Secrets.openRouteServiceKey
         guard !key.isEmpty else { throw RouteError.missingKey }
 
@@ -73,21 +121,6 @@ struct RouteService {
         request.timeoutInterval = 30
         request.setValue(key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var apiOptions: [String: Any] = [
-            "round_trip": ["length": lengthM, "points": points, "seed": seed]
-        ]
-        if options.avoidSteps {
-            apiOptions["avoid_features"] = ["steps"]
-        }
-
-        let body: [String: Any] = [
-            "coordinates": [[start.longitude, start.latitude]],
-            "options": apiOptions,
-            "elevation": true,
-            "extra_info": ["surface"],
-            "instructions": true,
-        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -125,6 +158,19 @@ struct RouteService {
             mix[keyPath: SurfaceMix.category(for: Int(entry.value))] += share
         }
 
+        let steps = (feature.properties.segments ?? [])
+            .flatMap { $0.steps ?? [] }
+            .map {
+                RouteStep(
+                    instruction: $0.instruction ?? "",
+                    name: $0.name ?? "",
+                    distanceM: $0.distance ?? 0,
+                    type: $0.type ?? 6,
+                    startIndex: $0.way_points?.first ?? 0,
+                    endIndex: $0.way_points?.last ?? 0
+                )
+            }
+
         return GeneratedRoute(
             coordinates: coords,
             elevations: elevations,
@@ -132,7 +178,7 @@ struct RouteService {
             durationS: feature.properties.summary.duration,
             ascentM: feature.properties.ascent ?? 0,
             surface: mix,
-            stepCount: feature.properties.segments?.first?.steps?.count ?? 0
+            steps: steps
         )
     }
 }
@@ -167,7 +213,13 @@ private struct ORSResponse: Decodable {
         let steps: [Step]?
     }
 
-    struct Step: Decodable {}
+    struct Step: Decodable {
+        let distance: Double?
+        let type: Int?
+        let instruction: String?
+        let name: String?
+        let way_points: [Int]?
+    }
 
     struct Extras: Decodable {
         let surface: Surface?

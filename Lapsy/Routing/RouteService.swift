@@ -113,17 +113,30 @@ struct RouteService {
         )
     }
 
-    private func send(body: [String: Any], profile: RoutingProfile) async throws -> GeneratedRoute {
-        let key = Secrets.openRouteServiceKey
-        guard !key.isEmpty else { throw RouteError.missingKey }
+    /// Flip to true once the `route` edge function is deployed (see supabase/functions/route).
+    static let useProxy = false
+    /// Set by the app at launch: returns the signed-in user's access token.
+    nonisolated(unsafe) static var proxyToken: (() async -> String?)?
 
-        let url = URL(string: "https://api.openrouteservice.org/v2/directions/\(profile.rawValue)/geojson")!
-        var request = URLRequest(url: url)
+    private func send(body: [String: Any], profile: RoutingProfile) async throws -> GeneratedRoute {
+        var request: URLRequest
+        if Self.useProxy {
+            // Production: the key lives on the server, the app sends the signed-in user's token.
+            guard let token = await Self.proxyToken?() else { throw RouteError.badResponse("Please sign in again.") }
+            request = URLRequest(url: URL(string: "\(Secrets.supabaseURL)/functions/v1/route")!)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(Secrets.supabasePublishableKey, forHTTPHeaderField: "apikey")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["profile": profile.rawValue, "body": body])
+        } else {
+            let key = Secrets.openRouteServiceKey
+            guard !key.isEmpty else { throw RouteError.missingKey }
+            request = URLRequest(url: URL(string: "https://api.openrouteservice.org/v2/directions/\(profile.rawValue)/geojson")!)
+            request.setValue(key, forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
         request.httpMethod = "POST"
         request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

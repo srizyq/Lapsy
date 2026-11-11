@@ -45,6 +45,7 @@ struct RootView: View {
         .environment(store)
         .task {
             store.attach(account)
+            RouteService.proxyToken = { [account] in await account.currentToken() }
             store.switchUser(nil)
             await account.restore()
         }

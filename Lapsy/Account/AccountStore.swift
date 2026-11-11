@@ -245,6 +245,12 @@ final class AccountStore {
         try await authorized(path, method: method, query: query, body: body, headers: headers)
     }
 
+    /// Fresh access token for the routing proxy.
+    func currentToken() async -> String? {
+        try? await refreshIfNeeded()
+        return session?.accessToken
+    }
+
     // MARK: - Sign out / delete
 
     func signOut() async {

@@ -61,6 +61,7 @@ struct SavedRun: Codable, Identifiable {
     var plannedPolyline: String?
     var plannedDistanceM: Double?
     var rating: Int?
+    var avgHeartRate: Int?
     var synced = false
 
     var activity: Activity { Activity.byId(activityId) }

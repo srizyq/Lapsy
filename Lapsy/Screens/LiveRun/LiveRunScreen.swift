@@ -227,7 +227,7 @@ private struct RunView: View {
                     metric(wheels ? "Speed" : "Pace", wheels ? Self.speed(session.speedKmh) : Self.pace(session.paceSecPerKm),
                            unit: wheels ? "km/h" : "/km")
                     metric("Time", Self.clock(session.elapsed(at: context.date)), unit: "")
-                    metric("Heart", "--", unit: "bpm")
+                    metric("Heart", HealthService.shared.heartRate.map(String.init) ?? "--", unit: "bpm")
                 }
                 HStack(spacing: 8) {
                     metric("Distance", String(format: "%.2f", session.distanceM / 1000), unit: "km")
@@ -303,6 +303,12 @@ private struct RunView: View {
                 HStack(spacing: 8) {
                     metric("Avg pace", Self.pace(session.averagePaceSecPerKm), unit: "/km")
                     metric("Energy", String(format: "%.0f", session.energyKcal), unit: "kcal")
+                }
+                if let hr = HealthService.shared.averageHeartRate {
+                    HStack(spacing: 8) {
+                        metric("Avg heart", "\(hr)", unit: "bpm")
+                        Color.clear.frame(maxWidth: .infinity)
+                    }
                 }
             }
 

@@ -14,6 +14,7 @@ create table if not exists public.runs (
   planned_polyline   text,
   planned_distance_m double precision,
   rating             smallint check (rating between 1 and 5),
+  avg_heart_rate     smallint check (avg_heart_rate is null or (avg_heart_rate between 25 and 250)),
   created_at         timestamptz not null default now()
 );
 

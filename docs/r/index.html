@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lapsy route</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 16px; background: #121317; color: #E6D5C3;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  .brand { font-size: 28px; font-weight: 700; letter-spacing: .5px; color: #fff; margin: 4px 0 16px; }
+  .card { background: #1C1D22; border: 1px solid #2C2D33; border-radius: 4px; padding: 18px; margin-bottom: 12px; }
+  .tag { font: 600 11px ui-monospace, Menlo, monospace; letter-spacing: 2px; text-transform: uppercase; color: #D4B996; margin: 0 0 8px; }
+  h1 { font-size: 22px; margin: 0 0 4px; color: #fff; }
+  p { margin: 0; font-size: 15px; line-height: 1.5; color: #B9B3AA; }
+  #map { height: 340px; border-radius: 4px; border: 1px solid #2C2D33; margin-bottom: 12px; background: #15161A; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stat { background: #1C1D22; border: 1px solid #2C2D33; border-radius: 4px; padding: 12px; }
+  .stat b { display: block; font-size: 22px; color: #fff; margin-top: 4px; }
+  .stat span { font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: 1.5px; text-transform: uppercase; color: #8d8a85; }
+  .hidden { display: none; }
+  .note { font-size: 13px; color: #7C7A76; margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">LAPSY</div>
+
+  <div id="loading" class="card"><p>Loading route...</p></div>
+
+  <div id="missing" class="card hidden">
+    <p class="tag">Not found</p>
+    <h1>This route isn't available.</h1>
+    <p>The link may be wrong, or the person who shared it removed it.</p>
+  </div>
+
+  <div id="route" class="hidden">
+    <div class="card">
+      <p class="tag" id="activity"></p>
+      <h1 id="name"></h1>
+    </div>
+    <div id="map"></div>
+    <div class="stats">
+      <div class="stat"><span>Distance</span><b id="distance"></b></div>
+      <div class="stat"><span>Climb</span><b id="climb"></b></div>
+    </div>
+    <div class="card">
+      <p class="tag">Run it in Lapsy</p>
+      <p>Lapsy makes routes for walking, running, cycling and more, and guides you along them. It's coming to the App Store soon.</p>
+    </div>
+  </div>
+
+  <p class="note">Map data &copy; OpenStreetMap contributors.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  var SUPABASE_URL = "https://ighpgtjjmuwbmnqxwgsn.supabase.co";
+  var PUBLISHABLE_KEY = "sb_publishable_YH5oRrIOVtYL_iom1B0xaw_IqFb8ku0";
+  var ACTIVITIES = {
+    walk: "Walk", run: "Run", trailrun: "Trail run", hike: "Hike", roadbike: "Road bike", bike: "Bike",
+    mtb: "Mountain bike", ebike: "E-bike", wheelchair: "Wheelchair", kayak: "Kayak", ski: "Ski",
+    skate: "Skate", row: "Row", swim: "Swim", other: "Other"
+  };
+
+  // Decode a Google-style encoded polyline (1e-5 degrees).
+  function decode(text) {
+    var out = [], i = 0, lat = 0, lon = 0;
+    function next() {
+      var result = 0, shift = 0, b;
+      do { b = text.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20 && i <= text.length);
+      return (result & 1) ? ~(result >> 1) : (result >> 1);
+    }
+    while (i < text.length) { lat += next(); lon += next(); out.push([lat / 1e5, lon / 1e5]); }
+    return out;
+  }
+
+  function show(id) {
+    ["loading", "missing", "route"].forEach(function (x) {
+      document.getElementById(x).classList.toggle("hidden", x !== id);
+    });
+  }
+
+  function render(row) {
+    document.getElementById("name").textContent = row.name;
+    document.getElementById("activity").textContent = ACTIVITIES[row.activity_id] || "Route";
+    document.getElementById("distance").textContent = (row.distance_m / 1000).toFixed(2) + " km";
+    document.getElementById("climb").textContent = "+" + Math.round(row.ascent_m) + " m";
+    document.title = row.name + " - Lapsy";
+    show("route");
+
+    var points = decode(row.polyline);
+    var map = L.map("map", { scrollWheelZoom: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+    var line = L.polyline(points, { color: "#D4B996", weight: 5 }).addTo(map);
+    if (points.length) {
+      L.circleMarker(points[0], { radius: 7, color: "#121317", weight: 2, fillColor: "#E6D5C3", fillOpacity: 1 }).addTo(map);
+    }
+    map.fitBounds(line.getBounds(), { padding: [24, 24] });
+  }
+
+  function load() {
+    var id = (window.location.hash || "").replace("#", "").trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) { show("missing"); return; }
+    fetch(SUPABASE_URL + "/rest/v1/rpc/get_shared_route", {
+      method: "POST",
+      headers: { "apikey": PUBLISHABLE_KEY, "Authorization": "Bearer " + PUBLISHABLE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_id: id })
+    })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (rows) { rows && rows.length ? render(rows[0]) : show("missing"); })
+      .catch(function () { show("missing"); });
+  }
+
+  load();
+</script>
+</body>
+</html>

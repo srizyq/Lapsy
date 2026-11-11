@@ -32,7 +32,14 @@ struct GeneratorScreen: View {
                     startButton
                 }
                 if let route = model.route, model.activity.canRoute {
-                    saveRouteButton(route)
+                    HStack(spacing: 8) {
+                        saveRouteButton(route)
+                        ShareRouteButton(
+                            name: "\(model.activity.name) · \(String(format: "%.1f", route.distanceM / 1000)) km",
+                            activityId: model.activity.id,
+                            route: { StoredRoute(route, profile: model.profile) }
+                        )
+                    }
                 }
             }
             .padding(Metrics.gutter)

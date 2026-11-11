@@ -128,6 +128,8 @@ struct SavedRouteDetail: View {
                 }
                 .buttonStyle(LapsyButtonStyle(kind: .primary))
 
+                ShareRouteButton(id: saved.id, name: saved.name, activityId: saved.activityId, route: { saved.route })
+
                 Button("Remove from saved") { confirmDelete = true }
                     .buttonStyle(LapsyButtonStyle(kind: .outlined))
                     .foregroundStyle(Palette.destructive)

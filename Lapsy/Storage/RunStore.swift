@@ -151,6 +151,7 @@ final class RunStore {
         var plannedPolyline: String?
         var plannedDistanceM: Double?
         var rating: Int?
+        var avgHeartRate: Int?
     }
 
     private struct RouteRow: Codable {
@@ -227,7 +228,7 @@ final class RunStore {
                 id: row.id, activityId: row.activityId, startedAt: started, durationS: row.durationS,
                 distanceM: row.distanceM, energyKcal: row.energyKcal, startName: row.startName ?? "",
                 track: row.track, plannedPolyline: row.plannedPolyline, plannedDistanceM: row.plannedDistanceM,
-                rating: row.rating, synced: true
+                rating: row.rating, avgHeartRate: row.avgHeartRate, synced: true
             )
             write(run, folder: "runs", id: run.id)
             runs = (runs.filter { $0.id != run.id } + [run]).sorted { $0.startedAt > $1.startedAt }
@@ -268,7 +269,7 @@ final class RunStore {
                 id: run.id, activityId: run.activityId, startedAt: Self.isoPlain.string(from: run.startedAt),
                 durationS: run.durationS, distanceM: run.distanceM, energyKcal: run.energyKcal,
                 startName: run.startName, track: run.track, plannedPolyline: run.plannedPolyline,
-                plannedDistanceM: run.plannedDistanceM, rating: run.rating
+                plannedDistanceM: run.plannedDistanceM, rating: run.rating, avgHeartRate: run.avgHeartRate
             )
             _ = try await account.rest(
                 "rest/v1/runs", method: "POST", query: ["on_conflict": "id"], body: [row],

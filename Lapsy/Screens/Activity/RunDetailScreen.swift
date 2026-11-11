@@ -46,6 +46,12 @@ struct RunDetailScreen: View {
                         }
                         stat("Energy", String(format: "%.0f", run.energyKcal), "kcal")
                     }
+                    if let hr = run.avgHeartRate {
+                        HStack(spacing: 8) {
+                            stat("Avg heart", "\(hr)", "bpm")
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
                 }
 
                 if run.plannedPolyline != nil {

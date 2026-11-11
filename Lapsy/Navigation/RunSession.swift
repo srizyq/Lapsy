@@ -23,6 +23,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     private(set) var rerouteCount = 0
     private(set) var startedAt: Date?
 
+    @ObservationIgnored private var locations: [CLLocation] = []
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var engine: NavigationEngine?
     @ObservationIgnored private var elapsedBase: TimeInterval = 0
@@ -98,7 +99,8 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
             startName: startName,
             track: Polyline.encode(breadcrumb),
             plannedPolyline: route.map { Polyline.encode($0.coordinates) },
-            plannedDistanceM: route?.distanceM
+            plannedDistanceM: route?.distanceM,
+            avgHeartRate: HealthService.shared.averageHeartRate
         )
     }
 
@@ -110,6 +112,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         distanceM = 0
         breadcrumb = []
         recent = []
+        locations = []
         lastAccepted = nil
         elapsedBase = 0
         resumedAt = Date()
@@ -118,6 +121,12 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         UIApplication.shared.isIdleTimerDisabled = true
+
+        let started = startedAt ?? Date()
+        Task {
+            await HealthService.shared.requestAccess()
+            HealthService.shared.startHeartRate(since: started)
+        }
     }
 
     func pause() {
@@ -140,6 +149,17 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         resumedAt = nil
         phase = .finished
         teardown()
+        HealthService.shared.stopHeartRate()
+
+        if let startedAt, distanceM >= 50 {
+            let (activity, distance, energy, track, end) = (activity, distanceM, energyKcal, locations, Date())
+            Task {
+                await HealthService.shared.saveWorkout(
+                    activity: activity, start: startedAt, end: end,
+                    distanceM: distance, energyKcal: energy, locations: track
+                )
+            }
+        }
     }
 
     /// Leave without saving (from the ready screen, or after the summary).
@@ -190,12 +210,14 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
                     distanceM += step
                     lastAccepted = location
                     breadcrumb.append(location.coordinate)
+                    self.locations.append(location)
                     recent.append((location.timestamp, distanceM))
                     recent.removeAll { location.timestamp.timeIntervalSince($0.time) > 30 }
                 }
             } else {
                 lastAccepted = location
                 breadcrumb.append(location.coordinate)
+                self.locations.append(location)
                 recent.append((location.timestamp, distanceM))
             }
             follow(location)

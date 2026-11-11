@@ -6,5 +6,9 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Lapsy shows your heart rate during an outing. It stays on your phone.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Lapsy saves your finished walks, runs and rides to Apple Health.</string>
 </dict>
 </plist>

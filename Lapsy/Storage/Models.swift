@@ -62,6 +62,12 @@ struct SavedRun: Codable, Identifiable {
     var plannedDistanceM: Double?
     var rating: Int?
     var avgHeartRate: Int?
+    /// Metres climbed, from the phone's altitude readings.
+    var ascentM: Double?
+    /// Seconds taken for each completed kilometre.
+    var splits: [Double]?
+    /// Surface mix of the planned route that was followed.
+    var surface: SurfaceMix?
     var synced = false
 
     var activity: Activity { Activity.byId(activityId) }
@@ -82,9 +88,11 @@ struct SavedRoute: Codable, Identifiable {
     var startName: String
     var createdAt: Date
     var route: StoredRoute
+    var favorite: Bool?
     var synced = false
 
     var activity: Activity { Activity.byId(activityId) }
+    var isFavorite: Bool { favorite ?? false }
 }
 
 /// Number formatting shared by the history screens.

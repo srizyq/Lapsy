@@ -18,6 +18,8 @@ final class GeneratorModel {
     var round = 0
     /// Index into `profilePoints` while the user drags on the elevation chart.
     var scrubIndex: Int?
+    /// Set by "Regenerate" elsewhere: make a route as soon as the Generator opens.
+    var autoGenerate = false
 
     init() {
         #if DEBUG

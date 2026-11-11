@@ -8,6 +8,8 @@ struct GeneratorScreen: View {
     private var bound: Bindable<GeneratorModel> { Bindable(app.generator) }
     @State private var camera: MapCameraPosition = .automatic
     @State private var showStartSheet = false
+    @State private var gpxItem: ShareItem?
+    @State private var gpxError: String?
 
     var body: some View {
         ScrollView {
@@ -33,17 +35,13 @@ struct GeneratorScreen: View {
                     startButton
                 }
                 if let route = model.route, model.activity.canRoute {
-                    HStack(spacing: 8) {
-                        saveRouteButton(route)
-                        ShareRouteButton(
-                            name: "\(model.activity.name) · \(String(format: "%.1f", route.distanceM / 1000)) km",
-                            activityId: model.activity.id,
-                            route: { StoredRoute(route, profile: model.profile) }
-                        )
-                    }
+                    exportCard(route)
                 }
             }
             .padding(Metrics.gutter)
+        }
+        .sheet(item: $gpxItem) { item in
+            ActivitySheet(items: [item.url]).presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showStartSheet) {
             StartPointSheet(location: app.location) { picked, isCurrent in
@@ -57,6 +55,10 @@ struct GeneratorScreen: View {
             }
             recenter()
             app.location.request()
+            if model.autoGenerate {
+                model.autoGenerate = false
+                Task { await generate() }
+            }
             #if DEBUG
             if ProcessInfo.processInfo.environment["LAPSY_AUTOGEN"] == "1" {
                 Task {
@@ -211,6 +213,14 @@ struct GeneratorScreen: View {
 
     private var parametersCard: some View {
         VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.primary)
+                Text("Tweak your route")
+                    .font(Typeface.headline(18))
+                    .foregroundStyle(Palette.textPrimary)
+            }
             HStack(alignment: .firstTextBaseline) {
                 MonoLabel("Distance")
                 Spacer()
@@ -334,9 +344,30 @@ struct GeneratorScreen: View {
         let km = route.distanceM / 1000
         let kcal = model.activity.kcalPerKmPerKg * 70 * km
         return VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                MonoLabel("Route preview", color: Palette.primary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    MonoLabel("Your route", color: Palette.primary)
+                    Text("\(model.activity.name) loop")
+                        .font(Typeface.headline(22))
+                        .foregroundStyle(Palette.textPrimary)
+                    Text("from \(model.start.name)")
+                        .font(Typeface.body(12))
+                        .foregroundStyle(Palette.textSecondary)
+                        .lineLimit(1)
+                }
                 Spacer()
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(String(format: "%.1f", km))
+                        .font(Typeface.headline(34))
+                        .foregroundStyle(Palette.textPrimary)
+                        .monospacedDigit()
+                    MonoLabel("Kilometers", size: 8)
+                }
+            }
+
+            HStack {
+                routeTags(route)
+                Spacer(minLength: 0)
                 if model.candidates.count > 1 {
                     Button {
                         model.nextCandidate()
@@ -381,6 +412,22 @@ struct GeneratorScreen: View {
             #endif
         }
         .card()
+        .task(id: Polyline.encode(route.coordinates)) {
+            await AmenityFinder.shared.load(polyline: Polyline.encode(route.coordinates))
+        }
+    }
+
+    /// Tags about the route. Water and toilets come from OpenStreetMap and appear once found.
+    private func routeTags(_ route: GeneratedRoute) -> some View {
+        let amenity = AmenityFinder.shared.amenities(for: Polyline.encode(route.coordinates))
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if route.surface.paved >= 0.6 { Tag(text: "Mostly paved", icon: "road.lanes") }
+                if route.surface.unpaved >= 0.4 { Tag(text: "Trail sections", icon: "mountain.2") }
+                if let a = amenity, a.water > 0 { Tag(text: "Water (\(a.water))", icon: "drop") }
+                if let a = amenity, a.toilets > 0 { Tag(text: "Restrooms (\(a.toilets))", icon: "figure.stand") }
+            }
+        }
     }
 
     private func stat(_ label: String, _ value: String) -> some View {
@@ -432,6 +479,39 @@ struct GeneratorScreen: View {
                 .font(Typeface.label(9))
                 .foregroundStyle(Palette.textSecondary)
         }
+    }
+
+    // MARK: - Export
+
+    private func exportCard(_ route: GeneratedRoute) -> some View {
+        let name = "\(model.activity.name) \(String(format: "%.1f", route.distanceM / 1000)) km"
+        return VStack(alignment: .leading, spacing: 10) {
+            MonoLabel("Save & export")
+            HStack(spacing: 8) {
+                saveRouteButton(route)
+                Button {
+                    do {
+                        let url = try GPX.file(name: name, route: StoredRoute(route, profile: model.profile))
+                        gpxItem = ShareItem(url: url)
+                        gpxError = nil
+                    } catch {
+                        gpxError = "Couldn't make the file. Try again."
+                    }
+                } label: { Text("GPX file") }
+                    .buttonStyle(LapsyButtonStyle(kind: .outlined))
+            }
+            ShareRouteButton(
+                name: "\(model.activity.name) · \(String(format: "%.1f", route.distanceM / 1000)) km",
+                activityId: model.activity.id,
+                route: { StoredRoute(route, profile: model.profile) }
+            )
+            if let gpxError {
+                Text(gpxError)
+                    .font(Typeface.body(12))
+                    .foregroundStyle(Palette.destructive)
+            }
+        }
+        .card()
     }
 
     // MARK: - Start run

@@ -1,4 +1,6 @@
 import CoreLocation
+import CoreMotion
+import MediaPlayer
 import UIKit
 import Observation
 
@@ -22,6 +24,10 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     private(set) var denied = false
     private(set) var rerouteCount = 0
     private(set) var startedAt: Date?
+    /// Metres climbed so far, from the phone's altitude readings.
+    private(set) var ascentM = 0.0
+    /// Steps per minute right now (on foot only), or nil if the phone can't tell.
+    private(set) var cadenceSPM: Int?
 
     @ObservationIgnored private var locations: [CLLocation] = []
     @ObservationIgnored private let manager = CLLocationManager()
@@ -34,6 +40,9 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var lastRerouteAt = Date.distantPast
     @ObservationIgnored private var rerouting = false
     @ObservationIgnored private var hapticStep: Int?
+    @ObservationIgnored private var kmMarks: [Double] = []
+    @ObservationIgnored private var altitudeBase: Double?
+    @ObservationIgnored private let pedometer = CMPedometer()
 
     init(planned: PlannedRoute) {
         activity = planned.activity
@@ -100,8 +109,48 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
             track: Polyline.encode(breadcrumb),
             plannedPolyline: route.map { Polyline.encode($0.coordinates) },
             plannedDistanceM: route?.distanceM,
-            avgHeartRate: HealthService.shared.averageHeartRate
+            avgHeartRate: HealthService.shared.averageHeartRate,
+            ascentM: ascentM,
+            splits: splits,
+            surface: route?.surface
         )
+    }
+
+    /// Seconds taken for each completed kilometre.
+    var splits: [Double] {
+        zip([0] + kmMarks, kmMarks).map { $1 - $0 }
+    }
+
+    // MARK: - Along the planned route
+
+    /// Height gained (negative = lost) over the next `meters` of the planned route.
+    func climbAhead(_ meters: Double) -> Double? {
+        guard let (here, there) = ahead(meters) else { return nil }
+        return there.elevation - here.elevation
+    }
+
+    /// Slope of the next ~100 m of the planned route, in percent.
+    var gradePercent: Double? {
+        guard let (here, there) = ahead(100), there.distance - here.distance > 20 else { return nil }
+        return (there.elevation - here.elevation) / (there.distance - here.distance) * 100
+    }
+
+    private func ahead(_ meters: Double) -> ((distance: Double, elevation: Double), (distance: Double, elevation: Double))? {
+        guard let engine, let route, route.elevations.count == engine.cumulative.count,
+              engine.cumulative.indices.contains(nav.routeIndex) else { return nil }
+        let i = nav.routeIndex
+        let target = engine.cumulative[i] + meters
+        let j = engine.cumulative.firstIndex(where: { $0 >= target }) ?? (engine.cumulative.count - 1)
+        guard j > i else { return nil }
+        return ((engine.cumulative[i], route.elevations[i]), (engine.cumulative[j], route.elevations[j]))
+    }
+
+    /// The song playing in the Music app, if there is one and access was allowed.
+    func nowPlaying() -> (title: String, artist: String)? {
+        guard MPMediaLibrary.authorizationStatus() == .authorized,
+              let item = MPMusicPlayerController.systemMusicPlayer.nowPlayingItem,
+              let title = item.title else { return nil }
+        return (title, item.artist ?? "")
     }
 
     // MARK: - Controls
@@ -113,6 +162,9 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         breadcrumb = []
         recent = []
         locations = []
+        kmMarks = []
+        ascentM = 0
+        altitudeBase = nil
         lastAccepted = nil
         elapsedBase = 0
         resumedAt = Date()
@@ -123,6 +175,15 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         UIApplication.shared.isIdleTimerDisabled = true
 
         let started = startedAt ?? Date()
+        if activity.group != .wheels, CMPedometer.isCadenceAvailable() {
+            pedometer.startUpdates(from: started) { [weak self] data, _ in
+                let perSecond = data?.currentCadence?.doubleValue
+                Task { @MainActor in self?.cadenceSPM = perSecond.map { Int(($0 * 60).rounded()) } }
+            }
+        }
+        if MPMediaLibrary.authorizationStatus() == .notDetermined {
+            MPMediaLibrary.requestAuthorization { _ in }
+        }
         Task {
             await HealthService.shared.requestAccess()
             HealthService.shared.startHeartRate(since: started)
@@ -168,6 +229,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     }
 
     private func teardown() {
+        pedometer.stopUpdates()
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates = false
         UIApplication.shared.isIdleTimerDisabled = false
@@ -208,6 +270,8 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
                 // Below ~2 m is GPS jitter while standing still.
                 if step >= 2 {
                     distanceM += step
+                    markKilometres()
+                    countClimb(location)
                     lastAccepted = location
                     breadcrumb.append(location.coordinate)
                     self.locations.append(location)
@@ -221,6 +285,26 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
                 recent.append((location.timestamp, distanceM))
             }
             follow(location)
+        }
+    }
+
+    private func markKilometres() {
+        while distanceM >= Double(kmMarks.count + 1) * 1000 {
+            kmMarks.append(elapsed())
+        }
+    }
+
+    /// Adds to the climb only when the altitude has really moved by a few metres,
+    /// so GPS and barometer wobble doesn't pile up.
+    private func countClimb(_ location: CLLocation) {
+        guard location.verticalAccuracy >= 0, location.verticalAccuracy <= 15 else { return }
+        let altitude = location.altitude
+        guard let base = altitudeBase else { altitudeBase = altitude; return }
+        if altitude - base >= 3 {
+            ascentM += altitude - base
+            altitudeBase = altitude
+        } else if base - altitude >= 3 {
+            altitudeBase = altitude
         }
     }
 

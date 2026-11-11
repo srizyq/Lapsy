@@ -127,9 +127,11 @@ private struct RunView: View {
     private var activeContent: some View {
         VStack(spacing: 12) {
             if session.route != nil { turnBanner }
-            mapCard(height: 300)
-            if session.route != nil { progressCard }
-            metricsGrid
+            mapCard(height: 280)
+                .overlay(alignment: .topLeading) { mapOverlayTop }
+                .overlay(alignment: .bottomLeading) { mapOverlayBottom }
+            distanceHero
+            liveTiles
             controls
         }
     }
@@ -192,52 +194,175 @@ private struct RunView: View {
         )
     }
 
-    private var progressCard: some View {
-        let total = max(1, session.routeTotalM)
-        let done = min(total, session.nav.distanceAlongM)
+    // Chips on top of the map. They only appear when there is something real to show.
+    private var mapOverlayTop: some View {
+        TimelineView(.periodic(from: .now, by: 2)) { _ in
+            if let song = session.nowPlaying() {
+                HStack(spacing: 8) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Palette.primary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        MonoLabel("Now playing", size: 8)
+                        Text(song.artist.isEmpty ? song.title : "\(song.title) · \(song.artist)")
+                            .font(Typeface.body(12, weight: .medium))
+                            .foregroundStyle(Palette.textPrimary)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Palette.neutral.opacity(0.88))
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+                    .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
+                .padding(8)
+                .frame(maxWidth: 260, alignment: .leading)
+            }
+        }
+    }
+
+    private var mapOverlayBottom: some View {
+        HStack(spacing: 6) {
+            if let climb = session.climbAhead(400) {
+                mapChip("Climb in 400 m", String(format: "%+.0f m", climb))
+            }
+            if let grade = session.gradePercent {
+                mapChip("Slope", String(format: "%+.1f%%", grade))
+            }
+        }
+        .padding(8)
+    }
+
+    private func mapChip(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            MonoLabel(label, size: 8)
+            Text(value)
+                .font(Typeface.headline(15))
+                .foregroundStyle(Palette.textPrimary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Palette.neutral.opacity(0.88))
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+            .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
+    }
+
+    private var distanceHero: some View {
+        let total = session.routeTotalM
+        let done = session.route == nil ? 0 : min(total, session.nav.distanceAlongM)
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                MonoLabel("Route progress")
-                Spacer()
-                Text(String(format: "%.2f", done / 1000))
-                    .font(Typeface.headline(24))
+            HStack(alignment: .lastTextBaseline) {
+                Text(String(format: "%.2f", session.distanceM / 1000))
+                    .font(Typeface.headline(44))
                     .foregroundStyle(Palette.textPrimary)
                     .monospacedDigit()
-                Text(String(format: "/ %.2f KM", total / 1000))
-                    .font(Typeface.label(11))
+                Text("KM")
+                    .font(Typeface.label(12))
                     .foregroundStyle(Palette.textSecondary)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(Palette.well)
-                    Rectangle().fill(Palette.primary).frame(width: geo.size.width * done / total)
+                Spacer()
+                if session.route != nil, total > 0 {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        MonoLabel("Route progress", size: 9)
+                        Text(String(format: "of %.2f km (%d%%)", total / 1000, Int((done / total * 100).rounded())))
+                            .font(Typeface.label(11))
+                            .foregroundStyle(Palette.textSecondary)
+                    }
                 }
             }
-            .frame(height: 6)
-            .clipShape(RoundedRectangle(cornerRadius: 2))
+            if session.route != nil, total > 0 { ProgressLine(fraction: done / total, height: 6) }
         }
         .card()
     }
 
-    private var metricsGrid: some View {
+    private var liveTiles: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let wheels = session.activity.group == .wheels
+            let elapsed = session.elapsed(at: context.date)
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
-                    metric(wheels ? "Speed" : "Pace", wheels ? Self.speed(session.speedKmh) : Self.pace(session.paceSecPerKm),
-                           unit: wheels ? "km/h" : "/km")
-                    metric("Time", Self.clock(session.elapsed(at: context.date)), unit: "")
-                    metric("Heart", HealthService.shared.heartRate.map(String.init) ?? "--", unit: "bpm")
+                    tile(wheels ? "Current speed" : "Current pace",
+                         wheels ? Self.speed(session.speedKmh) : Self.pace(session.paceSecPerKm),
+                         unit: wheels ? "km/h" : "/km", note: paceNote)
+                    tile("Elapsed time", Self.clock(elapsed), unit: "time",
+                         note: "Splits: \(session.splits.count)")
+                    tile("Heart rate", HealthService.shared.heartRate.map(String.init) ?? "--", unit: "bpm",
+                         note: HealthService.shared.averageHeartRate.map { "Avg \($0)" } ?? "")
                 }
                 HStack(spacing: 8) {
-                    metric("Distance", String(format: "%.2f", session.distanceM / 1000), unit: "km")
-                    metric("Energy", String(format: "%.0f", session.energyKcal), unit: "kcal")
-                    metric("Remaining",
-                           session.route == nil ? "--" : String(format: "%.2f", session.nav.remainingM / 1000),
-                           unit: "km")
+                    if !wheels {
+                        smallTile("Steps / min", session.cadenceSPM.map(String.init) ?? "--", icon: "figure.walk")
+                    }
+                    smallTile("Energy", String(format: "%.0f kcal", session.energyKcal), icon: "flame")
+                    smallTile("Time left", timeLeft(elapsed: elapsed), icon: "timer")
                 }
             }
         }
+    }
+
+    /// How current pace compares with the average so far, e.g. "-0'12"".
+    private var paceNote: String {
+        guard let now = session.paceSecPerKm, let avg = session.averagePaceSecPerKm else { return "" }
+        let d = Int((now - avg).rounded())
+        return String(format: "%@%d'%02d\" vs avg", d < 0 ? "-" : "+", abs(d) / 60, abs(d) % 60)
+    }
+
+    private func timeLeft(elapsed: TimeInterval) -> String {
+        guard session.route != nil, let pace = session.averagePaceSecPerKm ?? session.paceSecPerKm else { return "--" }
+        return Self.clock(session.nav.remainingM / 1000 * pace)
+    }
+
+    private func tile(_ label: String, _ value: String, unit: String, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            MonoLabel(label, size: 8)
+            Text(value)
+                .font(Typeface.headline(26))
+                .foregroundStyle(Palette.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(unit.uppercased())
+                .font(Typeface.label(9))
+                .foregroundStyle(Palette.textSecondary)
+            Text(note.uppercased())
+                .font(Typeface.label(8))
+                .foregroundStyle(Palette.textMuted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(height: 10, alignment: .leading)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+            .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
+    }
+
+    private func smallTile(_ label: String, _ value: String, icon: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.textMuted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(Typeface.headline(15))
+                    .foregroundStyle(Palette.textPrimary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                MonoLabel(label, size: 8)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+            .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
     }
 
     private func metric(_ label: String, _ value: String, unit: String) -> some View {
@@ -265,15 +390,14 @@ private struct RunView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 8) {
             if session.phase == .running {
-                Button("Pause") { session.pause() }
-                    .buttonStyle(LapsyButtonStyle(kind: .secondary))
+                SlideToConfirm(title: "Slide to pause") { session.pause() }
             } else {
                 Button("Resume") { session.resume() }
                     .buttonStyle(LapsyButtonStyle(kind: .primary))
             }
-            Button("Finish") { confirmFinish = true }
+            Button("Finish \(session.activity.noun)") { confirmFinish = true }
                 .buttonStyle(LapsyButtonStyle(kind: .outlined))
         }
     }
@@ -303,6 +427,10 @@ private struct RunView: View {
                 HStack(spacing: 8) {
                     metric("Avg pace", Self.pace(session.averagePaceSecPerKm), unit: "/km")
                     metric("Energy", String(format: "%.0f", session.energyKcal), unit: "kcal")
+                }
+                HStack(spacing: 8) {
+                    metric("Climb", String(format: "+%.0f", session.ascentM), unit: "m")
+                    metric("Splits", "\(session.splits.count)", unit: "km done")
                 }
                 if let hr = HealthService.shared.averageHeartRate {
                     HStack(spacing: 8) {

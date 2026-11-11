@@ -10,5 +10,9 @@
 	<string>Lapsy shows your heart rate during an outing. It stays on your phone.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Lapsy saves your finished walks, runs and rides to Apple Health.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Lapsy shows your steps per minute during a walk or run. It stays on your phone.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Lapsy shows the song that's playing during an outing. It stays on your phone.</string>
 </dict>
 </plist>

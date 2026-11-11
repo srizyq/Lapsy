@@ -77,6 +77,12 @@ final class RunStore {
         Task { await sync() }
     }
 
+    func setFavorite(_ on: Bool, for route: SavedRoute) {
+        var route = route
+        route.favorite = on
+        add(route)
+    }
+
     func delete(_ route: SavedRoute) {
         remove(folder: "routes", id: route.id)
         routes.removeAll { $0.id == route.id }
@@ -152,6 +158,9 @@ final class RunStore {
         var plannedDistanceM: Double?
         var rating: Int?
         var avgHeartRate: Int?
+        var ascentM: Double?
+        var splits: [Double]?
+        var surface: SurfaceMix?
     }
 
     private struct RouteRow: Codable {
@@ -164,6 +173,7 @@ final class RunStore {
         var durationS: Double
         var route: StoredRoute
         var createdAt: String?
+        var favorite: Bool?
     }
 
     private static let isoPlain: ISO8601DateFormatter = {
@@ -228,7 +238,8 @@ final class RunStore {
                 id: row.id, activityId: row.activityId, startedAt: started, durationS: row.durationS,
                 distanceM: row.distanceM, energyKcal: row.energyKcal, startName: row.startName ?? "",
                 track: row.track, plannedPolyline: row.plannedPolyline, plannedDistanceM: row.plannedDistanceM,
-                rating: row.rating, avgHeartRate: row.avgHeartRate, synced: true
+                rating: row.rating, avgHeartRate: row.avgHeartRate,
+                ascentM: row.ascentM, splits: row.splits, surface: row.surface, synced: true
             )
             write(run, folder: "runs", id: run.id)
             runs = (runs.filter { $0.id != run.id } + [run]).sorted { $0.startedAt > $1.startedAt }
@@ -250,7 +261,8 @@ final class RunStore {
             if let local = routes.first(where: { $0.id == row.id }), !local.synced { continue }
             let saved = SavedRoute(
                 id: row.id, name: row.name, activityId: row.activityId, startName: row.startName ?? "",
-                createdAt: Self.parse(row.createdAt) ?? Date(), route: row.route, synced: true
+                createdAt: Self.parse(row.createdAt) ?? Date(), route: row.route,
+                favorite: row.favorite, synced: true
             )
             write(saved, folder: "routes", id: saved.id)
             routes = (routes.filter { $0.id != saved.id } + [saved]).sorted { $0.createdAt > $1.createdAt }
@@ -269,7 +281,8 @@ final class RunStore {
                 id: run.id, activityId: run.activityId, startedAt: Self.isoPlain.string(from: run.startedAt),
                 durationS: run.durationS, distanceM: run.distanceM, energyKcal: run.energyKcal,
                 startName: run.startName, track: run.track, plannedPolyline: run.plannedPolyline,
-                plannedDistanceM: run.plannedDistanceM, rating: run.rating, avgHeartRate: run.avgHeartRate
+                plannedDistanceM: run.plannedDistanceM, rating: run.rating, avgHeartRate: run.avgHeartRate,
+                ascentM: run.ascentM, splits: run.splits, surface: run.surface
             )
             _ = try await account.rest(
                 "rest/v1/runs", method: "POST", query: ["on_conflict": "id"], body: [row],
@@ -287,7 +300,8 @@ final class RunStore {
             let row = RouteRow(
                 id: saved.id, name: saved.name, activityId: saved.activityId, startName: saved.startName,
                 distanceM: saved.route.distanceM, ascentM: saved.route.ascentM, durationS: saved.route.durationS,
-                route: saved.route, createdAt: Self.isoPlain.string(from: saved.createdAt)
+                route: saved.route, createdAt: Self.isoPlain.string(from: saved.createdAt),
+                favorite: saved.isFavorite
             )
             _ = try await account.rest(
                 "rest/v1/saved_routes", method: "POST", query: ["on_conflict": "id"], body: [row],

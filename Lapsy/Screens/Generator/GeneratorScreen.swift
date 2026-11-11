@@ -3,6 +3,7 @@ import MapKit
 
 struct GeneratorScreen: View {
     @Environment(AppState.self) private var app
+    @Environment(RunStore.self) private var store
     @State private var model = GeneratorModel()
     @State private var camera: MapCameraPosition = .automatic
     @State private var showStartSheet = false
@@ -29,6 +30,9 @@ struct GeneratorScreen: View {
                 }
                 if model.route != nil || !model.activity.canRoute {
                     startButton
+                }
+                if let route = model.route, model.activity.canRoute {
+                    saveRouteButton(route)
                 }
             }
             .padding(Metrics.gutter)
@@ -428,6 +432,31 @@ struct GeneratorScreen: View {
             Text("Start \(model.activity.noun)")
         }
         .buttonStyle(LapsyButtonStyle(kind: .primary))
+    }
+
+    private func isSaved(_ route: GeneratedRoute) -> Bool {
+        store.routes.contains {
+            $0.activityId == model.activity.id
+                && abs($0.route.distanceM - route.distanceM) < 0.5
+                && $0.route.polyline.hasPrefix(Polyline.encode(Array(route.coordinates.prefix(8))))
+        }
+    }
+
+    private func saveRouteButton(_ route: GeneratedRoute) -> some View {
+        let saved = isSaved(route)
+        return Button {
+            store.add(SavedRoute(
+                name: "\(model.activity.name) · \(String(format: "%.1f", route.distanceM / 1000)) km · \(model.start.name)",
+                activityId: model.activity.id,
+                startName: model.start.name,
+                createdAt: Date(),
+                route: StoredRoute(route, profile: model.profile)
+            ))
+        } label: {
+            Text(saved ? "Saved" : "Save route")
+        }
+        .buttonStyle(LapsyButtonStyle(kind: .outlined))
+        .disabled(saved)
     }
 
     // MARK: - Helpers

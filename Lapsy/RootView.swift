@@ -27,6 +27,7 @@ enum AppTab: String, CaseIterable, Identifiable {
 struct RootView: View {
     @State private var app = AppState()
     @State private var account = AccountStore()
+    @State private var store = RunStore()
     @State private var showProfile = false
 
     var body: some View {
@@ -41,7 +42,14 @@ struct RootView: View {
             }
         }
         .environment(account)
-        .task { await account.restore() }
+        .environment(store)
+        .task {
+            store.attach(account)
+            store.switchUser(nil)
+            await account.restore()
+        }
+        .onChange(of: account.user?.id) { _, id in store.switchUser(id) }
+        .onChange(of: account.profile) { _, _ in Task { await store.sync() } }
         .onChange(of: account.state) { _, state in
             if state == .signedOut {
                 showProfile = false

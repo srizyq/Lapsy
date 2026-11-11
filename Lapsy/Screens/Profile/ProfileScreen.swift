@@ -3,6 +3,7 @@ import SwiftUI
 struct ProfileScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AccountStore.self) private var account
+    @Environment(RunStore.self) private var store
 
     @State private var draft = Profile(id: "")
     @State private var weight = ""
@@ -71,7 +72,7 @@ struct ProfileScreen: View {
                         .foregroundStyle(Palette.textSecondary)
                         .lineLimit(1)
                 }
-                MonoLabel("0 day streak", color: Palette.primary)
+                MonoLabel("\(store.streakDays) day streak", color: Palette.primary)
             }
             Spacer(minLength: 0)
             Button("Close") { dismiss() }
@@ -85,13 +86,12 @@ struct ProfileScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             MonoLabel("Stats")
             HStack(spacing: 8) {
-                stat("Runs", "0")
-                stat("Distance", "0.0 \(draft.isMetric ? "km" : "mi")")
-                stat("Time", "0:00")
+                stat("Outings", "\(store.runs.count)")
+                stat("Distance", draft.isMetric
+                     ? String(format: "%.1f km", store.totalDistanceM / 1000)
+                     : String(format: "%.1f mi", store.totalDistanceM / 1609.344))
+                stat("Time", Fmt.clock(store.totalTimeS))
             }
-            Text("Your totals appear here once runs are saved.")
-                .font(Typeface.body(12))
-                .foregroundStyle(Palette.textMuted)
         }
         .card()
     }

@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-enum RoutingProfile: String, CaseIterable {
+enum RoutingProfile: String, CaseIterable, Codable {
     case footWalking = "foot-walking"
     case footHiking = "foot-hiking"
     case cyclingRegular = "cycling-regular"
@@ -11,7 +11,7 @@ enum RoutingProfile: String, CaseIterable {
     case wheelchair = "wheelchair"
 }
 
-struct SurfaceMix {
+struct SurfaceMix: Codable {
     var paved: Double = 0
     var unpaved: Double = 0
     var unknown: Double = 0
@@ -28,7 +28,7 @@ struct SurfaceMix {
 
 /// One turn instruction. The maneuver happens at `startIndex`, then the route
 /// continues along `name` until `endIndex`.
-struct RouteStep {
+struct RouteStep: Codable {
     var instruction: String
     var name: String
     var distanceM: Double

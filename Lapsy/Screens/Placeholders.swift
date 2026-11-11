@@ -24,23 +24,3 @@ struct PlaceholderScreen: View {
         }
     }
 }
-
-struct ActivityScreen: View {
-    var body: some View {
-        PlaceholderScreen(
-            tag: "Activity",
-            title: "Your history",
-            note: "Weekly stats and logged runs go here."
-        )
-    }
-}
-
-struct SavedScreen: View {
-    var body: some View {
-        PlaceholderScreen(
-            tag: "Saved",
-            title: "Saved routes",
-            note: "Routes you keep, with search and filters."
-        )
-    }
-}

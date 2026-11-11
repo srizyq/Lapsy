@@ -237,6 +237,14 @@ final class AccountStore {
         if let saved = try Self.decoder.decode([Profile].self, from: data).first { profile = saved }
     }
 
+    /// Authenticated database call for other stores (runs, saved routes).
+    func rest(
+        _ path: String, method: String = "GET", query: [String: String] = [:],
+        body: Encodable? = nil, headers: [String: String] = [:]
+    ) async throws -> Data {
+        try await authorized(path, method: method, query: query, body: body, headers: headers)
+    }
+
     // MARK: - Sign out / delete
 
     func signOut() async {

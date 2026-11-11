@@ -26,6 +26,11 @@ private struct RunView: View {
     let session: RunSession
     let onDone: () -> Void
 
+    @Environment(RunStore.self) private var store
+    @State private var savedId: UUID?
+    @State private var tooShort = false
+    @State private var discarded = false
+    @State private var rating = 0
     @State private var camera: MapCameraPosition = .automatic
     @State private var confirmFinish = false
 
@@ -43,6 +48,15 @@ private struct RunView: View {
         .onChange(of: session.phase) { _, phase in
             if phase == .running {
                 camera = .userLocation(followsHeading: false, fallback: .automatic)
+            }
+            if phase == .finished, savedId == nil {
+                // Keep the outing straight away so it can't be lost.
+                if let run = session.makeSavedRun() {
+                    store.add(run)
+                    savedId = run.id
+                } else {
+                    tooShort = true
+                }
             }
         }
         .confirmationDialog("Finish this \(session.activity.noun)?", isPresented: $confirmFinish, titleVisibility: .visible) {
@@ -292,13 +306,62 @@ private struct RunView: View {
                 }
             }
 
-            Text("Saving to history and Apple Health comes in a later step. This \(session.activity.noun) is not stored yet.")
-                .font(Typeface.body(12))
-                .foregroundStyle(Palette.textMuted)
+            if savedId != nil {
+                Text("Saved to your Activity.")
+                    .font(Typeface.body(13))
+                    .foregroundStyle(Palette.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if session.route != nil { ratingCard }
+            } else if tooShort {
+                Text("That was under 50 m, so it wasn't saved.")
+                    .font(Typeface.body(13))
+                    .foregroundStyle(Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if discarded {
+                Text("Discarded. Nothing was saved.")
+                    .font(Typeface.body(13))
+                    .foregroundStyle(Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Button("Done", action: onDone)
                 .buttonStyle(LapsyButtonStyle(kind: .primary))
+
+            if let id = savedId, let run = store.runs.first(where: { $0.id == id }) {
+                Button("Discard this \(session.activity.noun)") {
+                    store.delete(run)
+                    savedId = nil
+                    discarded = true
+                }
+                .font(Typeface.label(11))
+                .foregroundStyle(Palette.destructive)
+                .padding(.top, 4)
+            }
         }
+    }
+
+    private var ratingCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MonoLabel("How was this route?")
+            HStack(spacing: 6) {
+                ForEach(1...5, id: \.self) { star in
+                    Button {
+                        rating = star
+                        if let id = savedId { store.setRating(star, for: id) }
+                    } label: {
+                        Image(systemName: star <= rating ? "star.fill" : "star")
+                            .font(.system(size: 24))
+                            .foregroundStyle(star <= rating ? Palette.primary : Palette.textMuted)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+                }
+                Spacer()
+            }
+        }
+        .card()
     }
 
     // MARK: - Formatting

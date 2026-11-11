@@ -21,6 +21,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     private(set) var statusNote: String?
     private(set) var denied = false
     private(set) var rerouteCount = 0
+    private(set) var startedAt: Date?
 
     @ObservationIgnored private let manager = CLLocationManager()
     @ObservationIgnored private var engine: NavigationEngine?
@@ -85,6 +86,22 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         return distanceM > 50 && t > 0 ? t / (distanceM / 1000) : nil
     }
 
+    /// The finished outing as a record to keep, or nil if it was too short to be worth saving.
+    func makeSavedRun() -> SavedRun? {
+        guard let startedAt, distanceM >= 50 else { return nil }
+        return SavedRun(
+            activityId: activity.id,
+            startedAt: startedAt,
+            durationS: elapsedBase,
+            distanceM: distanceM,
+            energyKcal: energyKcal,
+            startName: startName,
+            track: Polyline.encode(breadcrumb),
+            plannedPolyline: route.map { Polyline.encode($0.coordinates) },
+            plannedDistanceM: route?.distanceM
+        )
+    }
+
     // MARK: - Controls
 
     func begin() {
@@ -96,6 +113,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         lastAccepted = nil
         elapsedBase = 0
         resumedAt = Date()
+        startedAt = Date()
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()

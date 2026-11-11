@@ -54,6 +54,7 @@ struct GeneratorScreen: View {
         .onChange(of: app.location.coordinate?.latitude) { _, _ in
             guard model.usingCurrentLocation, let c = app.location.coordinate else { return }
             model.start = StartPoint(name: "Current location", coordinate: c)
+            recenter()   // in the same update, so the map never shows the old spot
         }
         .onChange(of: model.start) { _, _ in
             model.reset()
@@ -133,6 +134,18 @@ struct GeneratorScreen: View {
             }
         }
         .mapStyle(.standard(elevation: .flat))
+        .overlay {
+            if let message = startUnresolved {
+                ZStack {
+                    Palette.well
+                    Text(message)
+                        .font(Typeface.body(14))
+                        .foregroundStyle(Palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(24)
+                }
+            }
+        }
         .frame(height: 260)
         .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
         .overlay(
@@ -143,11 +156,19 @@ struct GeneratorScreen: View {
 
     // MARK: - Start point
 
+    /// Why there is no real start point yet, or nil once there is one.
+    private var startUnresolved: String? {
+        guard model.usingCurrentLocation, app.location.coordinate == nil else { return nil }
+        return app.location.denied
+            ? "Location is off for Lapsy. Tap Change to pick where to start, or turn location on in Settings."
+            : "Finding your location..."
+    }
+
     private var startCard: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 MonoLabel("Start point")
-                Text(model.start.name)
+                Text(startUnresolved == nil ? model.start.name : (app.location.denied ? "Not set" : "Finding your location..."))
                     .font(Typeface.body(15, weight: .medium))
                     .foregroundStyle(Palette.textPrimary)
                     .lineLimit(1)
@@ -216,7 +237,7 @@ struct GeneratorScreen: View {
                      : (model.result == nil ? "Generate route" : "Generate new route"))
             }
             .buttonStyle(LapsyButtonStyle(kind: .primary))
-            .disabled(model.loading)
+            .disabled(model.loading || startUnresolved != nil)
         }
         .card()
     }
@@ -328,7 +349,7 @@ struct GeneratorScreen: View {
 
             MonoLabel("Elevation")
             ElevationChart(points: model.profilePoints, scrub: $model.scrubIndex)
-                .frame(height: 120)
+                .frame(height: 150)
 
             MonoLabel("Surface")
             surfaceBar(route.surface)
@@ -404,7 +425,7 @@ struct GeneratorScreen: View {
         Button {
             startRun()
         } label: {
-            Text(model.activity.canRoute ? "Start run" : "Start \(model.activity.name.lowercased())")
+            Text("Start \(model.activity.noun)")
         }
         .buttonStyle(LapsyButtonStyle(kind: .primary))
     }

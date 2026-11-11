@@ -66,6 +66,10 @@ final class AccountStore {
     /// Restores a saved session, refreshing it if it is about to expire.
     func restore() async {
         #if DEBUG
+        if ProcessInfo.processInfo.environment["LAPSY_SKIP_AUTH"] == "1" {
+            state = .signedIn
+            return
+        }
         if ProcessInfo.processInfo.environment["LAPSY_FORCE_SIGNED_OUT"] == "1" {
             state = .signedOut
             return

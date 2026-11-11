@@ -47,6 +47,8 @@ struct GeneratedRoute {
     var durationS: Double
     var ascentM: Double
     var surface: SurfaceMix
+    /// ORS surface code for each coordinate (same length as `coordinates`), or empty.
+    var surfaceCodes: [Int] = []
     var steps: [RouteStep] = []
     var score: RouteScore = .zero
     var seed: Int = 0
@@ -158,6 +160,14 @@ struct RouteService {
             mix[keyPath: SurfaceMix.category(for: Int(entry.value))] += share
         }
 
+        // Per-point surface: ORS gives [startIndex, endIndex, code] ranges.
+        var codes = [Int](repeating: 0, count: coords.count)
+        for range in feature.properties.extras?.surface?.values ?? [] where range.count == 3 {
+            let (start, end, code) = (range[0], range[1], range[2])
+            guard start >= 0, start < coords.count else { continue }
+            for i in start...min(end, coords.count - 1) { codes[i] = code }
+        }
+
         let steps = (feature.properties.segments ?? [])
             .flatMap { $0.steps ?? [] }
             .map {
@@ -178,6 +188,7 @@ struct RouteService {
             durationS: feature.properties.summary.duration,
             ascentM: feature.properties.ascent ?? 0,
             surface: mix,
+            surfaceCodes: codes,
             steps: steps
         )
     }
@@ -227,6 +238,7 @@ private struct ORSResponse: Decodable {
 
     struct Surface: Decodable {
         let summary: [SurfaceEntry]
+        let values: [[Int]]?
     }
 
     struct SurfaceEntry: Decodable {

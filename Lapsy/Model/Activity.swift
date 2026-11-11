@@ -23,6 +23,23 @@ struct Activity: Identifiable, Hashable {
 
     var canRoute: Bool { profile != nil }
 
+    /// What one outing is called in the app's wording: "Start walk", "Finish ride".
+    var noun: String {
+        switch id {
+        case "walk": "walk"
+        case "run", "trailrun": "run"
+        case "hike": "hike"
+        case "roadbike", "bike", "mtb", "ebike": "ride"
+        case "wheelchair": "trip"
+        case "kayak": "paddle"
+        case "ski": "ski"
+        case "skate": "skate"
+        case "row": "row"
+        case "swim": "swim"
+        default: "session"
+        }
+    }
+
     /// The profile actually sent to the API once the path type is applied.
     func profile(for path: PathType) -> RoutingProfile? {
         guard let base = profile else { return nil }

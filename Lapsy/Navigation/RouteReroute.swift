@@ -25,6 +25,7 @@ enum RouteReroute {
         var merged = original
         merged.coordinates = detour.coordinates + tailCoords
         merged.elevations = detour.elevations + tailElevations
+        merged.surfaceCodes = []   // no longer lines up with the new geometry
         merged.steps = steps
         merged.distanceM = detour.distanceM + tailDistance
         merged.durationS = detour.durationS + original.durationS * (tailDistance / max(1, original.distanceM))

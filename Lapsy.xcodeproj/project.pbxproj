@@ -172,11 +172,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2SQN4K2LKY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Config/Info-extra.plist;
+				INFOPLIST_FILE = "Config/Info-extra.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Lapsy;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Lapsy uses your location to start routes from where you are and to guide you along them.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -188,8 +190,9 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lapsy.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sriram.lapsy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -201,11 +204,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2SQN4K2LKY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Config/Info-extra.plist;
+				INFOPLIST_FILE = "Config/Info-extra.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Lapsy;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Lapsy uses your location to start routes from where you are and to guide you along them.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -217,8 +222,9 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lapsy.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sriram.lapsy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;

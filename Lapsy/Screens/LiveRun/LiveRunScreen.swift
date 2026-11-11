@@ -15,8 +15,8 @@ struct LiveRunScreen: View {
         } else {
             PlaceholderScreen(
                 tag: "Live run",
-                title: "No run in progress",
-                note: "Pick a route in Generator and tap Start run."
+                title: "Nothing in progress",
+                note: "Pick a route in Generator and tap Start."
             )
         }
     }
@@ -45,8 +45,8 @@ private struct RunView: View {
                 camera = .userLocation(followsHeading: false, fallback: .automatic)
             }
         }
-        .confirmationDialog("Finish this run?", isPresented: $confirmFinish, titleVisibility: .visible) {
-            Button("Finish run") { session.finish() }
+        .confirmationDialog("Finish this \(session.activity.noun)?", isPresented: $confirmFinish, titleVisibility: .visible) {
+            Button("Finish \(session.activity.noun)") { session.finish() }
             Button("Keep going", role: .cancel) {}
         }
         #if DEBUG
@@ -269,7 +269,7 @@ private struct RunView: View {
     private var summaryContent: some View {
         VStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                MonoLabel("Run complete", color: Palette.primary)
+                MonoLabel("\(session.activity.noun) complete", color: Palette.primary)
                 Text(session.activity.name)
                     .font(Typeface.headline(26))
                     .foregroundStyle(Palette.textPrimary)
@@ -292,7 +292,7 @@ private struct RunView: View {
                 }
             }
 
-            Text("Saving to history and Apple Health comes in a later step. This run is not stored yet.")
+            Text("Saving to history and Apple Health comes in a later step. This \(session.activity.noun) is not stored yet.")
                 .font(Typeface.body(12))
                 .foregroundStyle(Palette.textMuted)
 

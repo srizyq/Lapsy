@@ -12,6 +12,8 @@ struct ElevationChart: View {
         let minE = (lows.min() ?? 0)
         let maxE = (lows.max() ?? 0)
         let pad = max(5, (maxE - minE) * 0.15)
+        // Empty room above the line so the details label never covers the profile.
+        let headroom = max(maxE - minE, 12) * 0.6
 
         Chart {
             ForEach(points) { p in
@@ -34,12 +36,18 @@ struct ElevationChart: View {
                 RuleMark(x: .value("km", points[i].km))
                     .foregroundStyle(Palette.textPrimary.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .annotation(
+                        position: .overlay, alignment: .top, spacing: 0,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
+                    ) {
+                        tip(points[i])
+                    }
                 PointMark(x: .value("km", points[i].km), y: .value("m", points[i].elevation))
                     .foregroundStyle(Palette.tertiary)
                     .symbolSize(60)
             }
         }
-        .chartYScale(domain: (minE - pad)...(maxE + pad))
+        .chartYScale(domain: (minE - pad)...(maxE + pad + headroom))
         .chartYAxis(.hidden)
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { _ in
@@ -65,6 +73,26 @@ struct ElevationChart: View {
                     )
             }
         }
+    }
+
+    /// Details for the point under the finger.
+    private func tip(_ p: ProfilePoint) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(format: "%.2f KM  ·  %.0f M", p.km, p.elevation))
+                .foregroundStyle(Palette.textPrimary)
+            Text("\(p.gradeText)  ·  \(p.surfaceText)".uppercased())
+                .foregroundStyle(Palette.primary)
+        }
+        .font(Typeface.label(9))
+        .tracking(0.5)
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+            .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
     }
 
     private func nearestIndex(to km: Double) -> Int? {

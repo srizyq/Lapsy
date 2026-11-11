@@ -44,29 +44,3 @@ struct SavedScreen: View {
         )
     }
 }
-
-struct ProfileScreen: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                MonoLabel("Profile", color: Palette.primary)
-                Text("Your profile")
-                    .font(Typeface.headline(26))
-                    .foregroundStyle(Palette.textPrimary)
-                Text("Name, avatar, streak, stats and settings go here.")
-                    .font(Typeface.body(14))
-                    .foregroundStyle(Palette.textSecondary)
-            }
-            .card()
-
-            Button("Close") { dismiss() }
-                .buttonStyle(LapsyButtonStyle(kind: .outlined))
-
-            Spacer()
-        }
-        .padding(Metrics.gutter)
-        .background(Palette.neutral.ignoresSafeArea())
-    }
-}

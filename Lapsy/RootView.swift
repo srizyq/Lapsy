@@ -26,9 +26,33 @@ enum AppTab: String, CaseIterable, Identifiable {
 
 struct RootView: View {
     @State private var app = AppState()
+    @State private var account = AccountStore()
     @State private var showProfile = false
 
     var body: some View {
+        Group {
+            switch account.state {
+            case .loading:
+                Palette.neutral.ignoresSafeArea()
+            case .signedOut:
+                SignInScreen()
+            case .signedIn:
+                mainContent
+            }
+        }
+        .environment(account)
+        .task { await account.restore() }
+        .onChange(of: account.state) { _, state in
+            if state == .signedOut {
+                showProfile = false
+                app.session?.close()
+                app.session = nil
+                app.tab = .generator
+            }
+        }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
             TopBar(onProfile: { showProfile = true })
 

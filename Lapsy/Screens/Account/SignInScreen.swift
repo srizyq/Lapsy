@@ -100,7 +100,7 @@ struct SignInScreen: View {
                     .disabled(account.busy)
                 }
 
-                Text("By continuing you agree to the Terms and Privacy Policy.")
+                Text("By continuing you agree to the [Terms](https://srizyq.github.io/Lapsy/terms/) and [Privacy Policy](https://srizyq.github.io/Lapsy/privacy/).")
                     .font(Typeface.body(11))
                     .foregroundStyle(Palette.textMuted)
             }

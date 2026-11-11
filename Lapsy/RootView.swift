@@ -25,7 +25,7 @@ enum AppTab: String, CaseIterable, Identifiable {
 }
 
 struct RootView: View {
-    @State private var tab: AppTab = .generator
+    @State private var app = AppState()
     @State private var showProfile = false
 
     var body: some View {
@@ -33,7 +33,7 @@ struct RootView: View {
             TopBar(onProfile: { showProfile = true })
 
             Group {
-                switch tab {
+                switch app.tab {
                 case .generator: GeneratorScreen()
                 case .liveRun: LiveRunScreen()
                 case .activity: ActivityScreen()
@@ -42,9 +42,10 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            TabBar(selection: $tab)
+            TabBar(selection: Binding(get: { app.tab }, set: { app.tab = $0 }))
         }
         .background(Palette.neutral.ignoresSafeArea())
+        .environment(app)
         .sheet(isPresented: $showProfile) {
             ProfileScreen()
         }

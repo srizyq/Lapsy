@@ -26,12 +26,24 @@ struct PlaceholderScreen: View {
 }
 
 struct LiveRunScreen: View {
+    @Environment(AppState.self) private var app
+
     var body: some View {
-        PlaceholderScreen(
-            tag: "Live run",
-            title: "No run in progress",
-            note: "Start a route from Generator to see live navigation."
-        )
+        if let planned = app.planned {
+            PlaceholderScreen(
+                tag: "Live run",
+                title: planned.activity.name,
+                note: planned.route.map {
+                    String(format: "%.2f km route from %@. Live navigation comes next.", $0.distanceM / 1000, planned.startName)
+                } ?? "Tracking only from \(planned.startName). Live tracking comes next."
+            )
+        } else {
+            PlaceholderScreen(
+                tag: "Live run",
+                title: "No run in progress",
+                note: "Start a route from Generator to see live navigation."
+            )
+        }
     }
 }
 

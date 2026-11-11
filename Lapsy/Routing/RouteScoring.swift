@@ -9,16 +9,18 @@ struct RouteScore {
     var overlap: Double
     /// Isoperimetric quotient, 1 for a circle and near 0 for an out-and-back line.
     var roundness: Double
+    /// Known unpaved share, counted only when the user asked for roads.
+    var unpavedPenalty: Double = 0
 
     var total: Double {
-        2.0 * distanceError + 1.5 * overlap + 0.6 * (1 - roundness)
+        2.0 * distanceError + 1.5 * overlap + 0.6 * (1 - roundness) + 0.8 * unpavedPenalty
     }
 
     static let zero = RouteScore(distanceError: 0, overlap: 0, roundness: 0)
 }
 
 enum RouteScorer {
-    static func score(_ route: GeneratedRoute, requestedM: Double) -> RouteScore {
+    static func score(_ route: GeneratedRoute, requestedM: Double, preferPaved: Bool = false) -> RouteScore {
         let error = requestedM > 0 ? abs(route.distanceM - requestedM) / requestedM : 0
         let points = resample(route.coordinates, every: 20)
         guard points.count > 8 else {
@@ -27,7 +29,8 @@ enum RouteScorer {
         return RouteScore(
             distanceError: error,
             overlap: overlap(of: points),
-            roundness: roundness(of: points)
+            roundness: roundness(of: points),
+            unpavedPenalty: preferPaved ? route.surface.unpaved : 0
         )
     }
 

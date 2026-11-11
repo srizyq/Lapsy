@@ -23,11 +23,12 @@ struct RouteGenerator {
         start: CLLocationCoordinate2D,
         lengthM: Double,
         profile: RoutingProfile,
-        round: Int
+        round: Int,
+        options: RouteOptions = RouteOptions()
     ) async throws -> GenerationResult {
         var all = try await batch(
             start: start, targetM: lengthM, requestM: lengthM,
-            profile: profile, seedBase: round * 1000
+            profile: profile, seedBase: round * 1000, options: options
         )
         var requests = candidatesPerBatch
         var corrected = false
@@ -41,7 +42,7 @@ struct RouteGenerator {
                 let adjusted = lengthM / median
                 if let more = try? await batch(
                     start: start, targetM: lengthM, requestM: adjusted,
-                    profile: profile, seedBase: round * 1000 + 500
+                    profile: profile, seedBase: round * 1000 + 500, options: options
                 ) {
                     all += more
                     requests += candidatesPerBatch
@@ -60,7 +61,8 @@ struct RouteGenerator {
         targetM: Double,
         requestM: Double,
         profile: RoutingProfile,
-        seedBase: Int
+        seedBase: Int,
+        options: RouteOptions
     ) async throws -> [GeneratedRoute] {
         let outcomes = await withTaskGroup(of: Result<GeneratedRoute, Error>.self) { group in
             for i in 0..<candidatesPerBatch {
@@ -72,10 +74,11 @@ struct RouteGenerator {
                             lengthM: requestM,
                             profile: profile,
                             seed: seedBase + i,
-                            points: 3 + i % 3
+                            points: 3 + i % 3,
+                            options: options
                         )
                         route.seed = seedBase + i
-                        route.score = RouteScorer.score(route, requestedM: targetM)
+                        route.score = RouteScorer.score(route, requestedM: targetM, preferPaved: options.preferPaved)
                         return .success(route)
                     } catch {
                         return .failure(error)

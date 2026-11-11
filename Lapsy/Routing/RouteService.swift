@@ -7,6 +7,11 @@ enum RoutingProfile: String, CaseIterable {
     case cyclingRegular = "cycling-regular"
     case cyclingRoad = "cycling-road"
     case cyclingMountain = "cycling-mountain"
+    case cyclingElectric = "cycling-electric"
+    case wheelchair = "wheelchair"
+
+    /// Green and quiet-street weightings only exist on the foot profiles.
+    var isFoot: Bool { self == .footWalking || self == .footHiking }
 }
 
 struct SurfaceMix {
@@ -56,7 +61,8 @@ struct RouteService {
         lengthM: Double,
         profile: RoutingProfile,
         seed: Int,
-        points: Int = 3
+        points: Int = 3,
+        options: RouteOptions = RouteOptions()
     ) async throws -> GeneratedRoute {
         let key = Secrets.openRouteServiceKey
         guard !key.isEmpty else { throw RouteError.missingKey }
@@ -68,9 +74,16 @@ struct RouteService {
         request.setValue(key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        var apiOptions: [String: Any] = [
+            "round_trip": ["length": lengthM, "points": points, "seed": seed]
+        ]
+        if options.avoidSteps {
+            apiOptions["avoid_features"] = ["steps"]
+        }
+
         let body: [String: Any] = [
             "coordinates": [[start.longitude, start.latitude]],
-            "options": ["round_trip": ["length": lengthM, "points": points, "seed": seed]],
+            "options": apiOptions,
             "elevation": true,
             "extra_info": ["surface"],
             "instructions": true,

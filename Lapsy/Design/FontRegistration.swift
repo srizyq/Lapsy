@@ -1,7 +1,7 @@
 import CoreText
 import Foundation
 
-/// Registers the bundled .ttf fonts (Space Grotesk, Geist, JetBrains Mono) at launch,
+/// Registers the bundled .ttf fonts (Plus Jakarta Sans, Geist Mono) at launch,
 /// so no Info.plist font list is needed. Licenses are in the repo's Licenses folder.
 enum FontRegistration {
     static func registerAll() {

@@ -48,23 +48,40 @@ enum Metrics {
 
 // MARK: - Type
 
-/// Uses the bundled font when it is present and falls back to a system
-/// design that is close, so screens still look right before fonts are added.
+/// Plus Jakarta Sans for words, Geist Mono for numbers and small labels.
+/// Falls back to a close system design if a font file is missing.
 enum Typeface {
+    /// Titles, buttons, tabs.
     static func headline(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        let name = weight == .bold ? "SpaceGrotesk-Bold" : "SpaceGrotesk-Medium"
-        return custom(name, size: size) ?? .system(size: size, weight: weight)
+        sans(size, weight: weight)
     }
 
     static func body(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        let name = weight == .regular ? "Geist-Regular" : "Geist-Medium"
-        return custom(name, size: size) ?? .system(size: size, weight: weight)
+        sans(size, weight: weight)
     }
 
+    /// Numbers, distances, times and small caps labels.
     static func label(_ size: CGFloat = 10, weight: Font.Weight = .medium) -> Font {
-        let name = weight == .bold ? "JetBrainsMono-Bold" : "JetBrainsMono-Medium"
-        return custom(name, size: size)
-            ?? .system(size: size, weight: weight, design: .monospaced)
+        let name: String
+        switch weight {
+        case .bold, .heavy, .black: name = "GeistMono-Bold"
+        case .semibold: name = "GeistMono-SemiBold"
+        case .regular, .light, .thin, .ultraLight: name = "GeistMono-Regular"
+        default: name = "GeistMono-Medium"
+        }
+        return custom(name, size: size) ?? .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    private static func sans(_ size: CGFloat, weight: Font.Weight) -> Font {
+        let name: String
+        switch weight {
+        case .heavy, .black: name = "PlusJakartaSans-Regular_ExtraBold"
+        case .bold: name = "PlusJakartaSans-Regular_Bold"
+        case .semibold: name = "PlusJakartaSans-Regular_SemiBold"
+        case .medium: name = "PlusJakartaSans-Regular_Medium"
+        default: name = "PlusJakartaSans-Regular"
+        }
+        return custom(name, size: size) ?? .system(size: size, weight: weight)
     }
 
     private static func custom(_ name: String, size: CGFloat) -> Font? {

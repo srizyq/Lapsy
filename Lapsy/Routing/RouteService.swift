@@ -150,7 +150,7 @@ struct RouteService {
 
     private static func errorMessage(from data: Data, status: Int) -> String {
         if status == 403 || status == 429 {
-            return "Route making is very busy right now. Please try again in a little while."
+            return "Lapsy has used up its route-making allowance for today. It resets within 24 hours, so please try again later."
         }
         if status >= 500 {
             return "The route service is having trouble. Please try again in a moment."

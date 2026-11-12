@@ -18,7 +18,7 @@ struct GenerationResult {
 /// overshoots), it rescales the request by the observed ratio and tries again once.
 struct RouteGenerator {
     var service = RouteService()
-    var candidatesPerBatch = 6
+    var candidatesPerBatch = 3
     var acceptableError = 0.10
 
     func bestRoute(

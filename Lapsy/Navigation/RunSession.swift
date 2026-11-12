@@ -44,6 +44,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var altitudeBase: Double?
     @ObservationIgnored private let pedometer = CMPedometer()
     @ObservationIgnored private let voice = VoiceGuide()
+    @ObservationIgnored private let live = LiveActivityManager()
     @ObservationIgnored private var spokenFar: Set<Int> = []
     @ObservationIgnored private var spokenNear: Set<Int> = []
     @ObservationIgnored private var spokeArrival = false
@@ -62,6 +63,11 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         route = planned.route
         super.init()
         if let route = planned.route { engine = NavigationEngine(route: route) }
+        live.onToggle = { [weak self] in
+            guard let self else { return }
+            if self.phase == .running { self.pause() } else if self.phase == .paused { self.resume() }
+        }
+        live.onFinish = { [weak self] in self?.finish() }
 
         manager.delegate = self
         manager.activityType = activity.group == .wheels ? .otherNavigation : .fitness
@@ -201,6 +207,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         if MPMediaLibrary.authorizationStatus() == .notDetermined {
             MPMediaLibrary.requestAuthorization { _ in }
         }
+        live.start(name: activity.name, state: liveState())
         Task {
             await HealthService.shared.requestAccess()
             HealthService.shared.startHeartRate(since: started)
@@ -213,12 +220,14 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         resumedAt = nil
         lastAccepted = nil
         phase = .paused
+        live.update(liveState(), force: true)
     }
 
     func resume() {
         guard phase == .paused else { return }
         resumedAt = Date()
         phase = .running
+        live.update(liveState(), force: true)
     }
 
     func finish() {
@@ -246,6 +255,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     }
 
     private func teardown() {
+        live.end()
         voice.stop()
         pedometer.stopUpdates()
         manager.stopUpdatingLocation()
@@ -304,6 +314,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
             }
             follow(location)
         }
+        if phase == .running { live.update(liveState()) }
     }
 
     private func markKilometres() {
@@ -326,7 +337,33 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    // MARK: - Lock screen card
+
+    private func liveState() -> LapsyRunAttributes.ContentState {
+        let step = nav.nextStep
+        let arrived = nav.arrived
+        return LapsyRunAttributes.ContentState(
+            arrow: arrived ? "flag.fill" : (step?.symbol ?? "arrow.up"),
+            turnDistanceM: arrived ? nil : nav.distanceToNextM,
+            instruction: arrived ? "You've arrived" : (statusNote ?? step?.instruction ?? "Follow your \(activity.noun)"),
+            distanceM: distanceM,
+            clockStart: resumedAt.map { $0.addingTimeInterval(-elapsedBase) },
+            elapsedS: elapsed(),
+            paceText: livePace(),
+            heartRate: HealthService.shared.heartRate,
+            paused: phase == .paused,
+            offRoute: statusNote != nil && !arrived
+        )
+    }
+
+    private func livePace() -> String {
+        if activity.group == .wheels { return speedKmh.map { String(format: "%.1f km/h", $0) } ?? "--" }
+        guard let sec = paceSecPerKm, sec < 3600 else { return "--:--" }
+        return String(format: "%d:%02d /km", Int(sec) / 60, Int(sec) % 60)
+    }
+
     // MARK: - Following and rerouting
+
 
     private func follow(_ location: CLLocation) {
         guard var engine else { return }

@@ -33,6 +33,9 @@ private struct RunView: View {
     @State private var rating = 0
     @State private var camera: MapCameraPosition = .automatic
     @State private var confirmFinish = false
+    /// Map follows you, turned to face the way you travel. Off shows the whole route.
+    @State private var following = true
+    @State private var heading: Double = 0
 
     var body: some View {
         ScrollView {
@@ -47,7 +50,8 @@ private struct RunView: View {
         }
         .onChange(of: session.phase) { _, phase in
             if phase == .running {
-                camera = .userLocation(followsHeading: false, fallback: .automatic)
+                following = true
+                updateCamera()
             }
             if phase == .finished, savedId == nil {
                 // Keep the outing straight away so it can't be lost.
@@ -59,6 +63,10 @@ private struct RunView: View {
                 }
             }
         }
+        .onChange(of: session.current) { _, _ in
+            if session.phase == .running || session.phase == .paused, following { updateCamera() }
+        }
+        .onChange(of: following) { _, _ in updateCamera() }
         .confirmationDialog("Finish this \(session.activity.noun)?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish \(session.activity.noun)") { session.finish() }
             Button("Keep going", role: .cancel) {}
@@ -127,8 +135,9 @@ private struct RunView: View {
     private var activeContent: some View {
         VStack(spacing: 12) {
             if session.route != nil { turnBanner }
-            mapCard(height: 280)
+            mapCard(height: 360)
                 .overlay(alignment: .topLeading) { mapOverlayTop }
+                .overlay(alignment: .topTrailing) { mapButtons }
                 .overlay(alignment: .bottomLeading) { mapOverlayBottom }
             distanceHero
             liveTiles
@@ -138,34 +147,73 @@ private struct RunView: View {
 
     private var turnBanner: some View {
         let nav = session.nav
-        return HStack(spacing: 14) {
-            Image(systemName: nav.arrived ? "flag.fill" : (nav.nextStep?.symbol ?? "arrow.up"))
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Palette.onPrimary)
-                .frame(width: 56, height: 56)
-                .background(Palette.primary)
-                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        let offRoute = session.statusNote != nil && !nav.arrived
+        let steps = session.route?.steps ?? []
+        let then: RouteStep? = {
+            guard let i = nav.nextStepIndex, steps.indices.contains(i + 1) else { return nil }
+            let next = steps[i + 1]
+            return next.type == 10 ? nil : next
+        }()
+        return VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: nav.arrived ? "flag.fill" : (nav.nextStep?.symbol ?? "arrow.up"))
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundStyle(Palette.onPrimary)
+                    .frame(width: 68, height: 68)
+                    .background(offRoute ? Palette.destructive : Palette.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
 
-            VStack(alignment: .leading, spacing: 4) {
-                if let note = session.statusNote {
-                    MonoLabel(note, color: nav.arrived ? Palette.primary : Palette.destructive)
-                } else {
-                    MonoLabel("Next turn", color: Palette.primary)
+                VStack(alignment: .leading, spacing: 3) {
+                    if let note = session.statusNote {
+                        MonoLabel(note, color: nav.arrived ? Palette.primary : Palette.destructive)
+                    } else {
+                        MonoLabel("Next turn", color: Palette.primary)
+                    }
+                    Text(nav.arrived ? "Arrived" : (nav.distanceToNextM.map(Self.distance) ?? "--"))
+                        .font(Typeface.headline(38))
+                        .foregroundStyle(Palette.textPrimary)
+                        .monospacedDigit()
+                    if !nav.arrived, let step = nav.nextStep {
+                        Text(step.instruction)
+                            .font(Typeface.body(14))
+                            .foregroundStyle(Palette.textSecondary)
+                            .lineLimit(2)
+                    }
                 }
-                Text(nav.arrived ? "Arrived" : (nav.distanceToNextM.map(Self.distance) ?? "--"))
-                    .font(Typeface.headline(30))
-                    .foregroundStyle(Palette.textPrimary)
-                    .monospacedDigit()
-                if !nav.arrived, let step = nav.nextStep {
-                    Text(step.instruction)
-                        .font(Typeface.body(13))
-                        .foregroundStyle(Palette.textSecondary)
-                        .lineLimit(2)
-                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(Metrics.cardPadding)
+
+            if let then, !nav.arrived {
+                Rectangle().fill(Palette.hairline).frame(height: Metrics.hairline)
+                HStack(spacing: 10) {
+                    MonoLabel("Then", size: 9)
+                    Image(systemName: then.symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Palette.primary)
+                    Text(then.instruction)
+                        .font(Typeface.body(12))
+                        .foregroundStyle(Palette.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let toNext = nav.distanceToNextM, let i = nav.nextStepIndex {
+                        Text(Self.distance(toNext + steps[i].distanceM))
+                            .font(Typeface.label(11, weight: .bold))
+                            .foregroundStyle(Palette.textPrimary)
+                            .monospacedDigit()
+                    }
+                }
+                .padding(.horizontal, Metrics.cardPadding)
+                .padding(.vertical, 10)
+                .background(Palette.well)
+            }
         }
-        .card()
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.corner)
+                .strokeBorder(offRoute ? Palette.destructive : Palette.hairline, lineWidth: offRoute ? 1.5 : Metrics.hairline)
+        )
     }
 
     private func mapCard(height: CGFloat) -> some View {
@@ -185,13 +233,70 @@ private struct RunView: View {
                     .stroke(Palette.tertiary.opacity(0.8), lineWidth: 2)
             }
         }
-        .mapStyle(.standard(elevation: .flat))
+        .mapStyle(.standard(
+            elevation: session.phase != .ready && following ? .realistic : .flat,
+            pointsOfInterest: session.phase != .ready && following ? .excludingAll : .all
+        ))
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
         .overlay(
             RoundedRectangle(cornerRadius: Metrics.corner)
                 .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
         )
+    }
+
+    private var mapButtons: some View {
+        VStack(spacing: 8) {
+            mapButton(following ? "map" : "location.north.line.fill", label: following ? "Show whole route" : "Follow me") {
+                following.toggle()
+            }
+            mapButton(session.voiceOn ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                      label: session.voiceOn ? "Turn voice off" : "Turn voice on") {
+                session.voiceOn.toggle()
+            }
+        }
+        .padding(8)
+    }
+
+    private func mapButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Palette.textPrimary)
+                .frame(width: 38, height: 38)
+                .background(Palette.neutral.opacity(0.88))
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                .overlay(RoundedRectangle(cornerRadius: Metrics.corner)
+                    .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline))
+        }
+        .accessibilityLabel(label)
+    }
+
+    /// Chase view: close in, tilted, facing the way you are moving, with you low on screen.
+    private func updateCamera() {
+        guard following else {
+            if let route = session.route {
+                let rect = MKPolyline(coordinates: route.coordinates, count: route.coordinates.count).boundingMapRect
+                withAnimation { camera = .rect(rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)) }
+            } else {
+                camera = .userLocation(fallback: .automatic)
+            }
+            return
+        }
+        guard let here = session.current else {
+            camera = .userLocation(followsHeading: true, fallback: .automatic)
+            return
+        }
+        if here.course >= 0, here.speed >= 0.8 { heading = here.course }
+        let ahead = 70.0
+        let rad = heading * .pi / 180
+        let centre = CLLocationCoordinate2D(
+            latitude: here.coordinate.latitude + ahead * cos(rad) / 111_000,
+            longitude: here.coordinate.longitude + ahead * sin(rad) / (111_000 * cos(here.coordinate.latitude * .pi / 180))
+        )
+        withAnimation(.easeOut(duration: 0.8)) {
+            camera = .camera(MapCamera(centerCoordinate: centre, distance: 450, heading: heading, pitch: 60))
+        }
     }
 
     // Chips on top of the map. They only appear when there is something real to show.

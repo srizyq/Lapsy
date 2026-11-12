@@ -43,6 +43,17 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var kmMarks: [Double] = []
     @ObservationIgnored private var altitudeBase: Double?
     @ObservationIgnored private let pedometer = CMPedometer()
+    @ObservationIgnored private let voice = VoiceGuide()
+    @ObservationIgnored private var spokenFar: Set<Int> = []
+    @ObservationIgnored private var spokenNear: Set<Int> = []
+    @ObservationIgnored private var spokeArrival = false
+    /// Whether spoken directions are on. Remembered between runs.
+    var voiceOn = VoiceGuide.enabled {
+        didSet {
+            VoiceGuide.enabled = voiceOn
+            if !voiceOn { voice.stop() }
+        }
+    }
 
     init(planned: PlannedRoute) {
         activity = planned.activity
@@ -174,6 +185,12 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         manager.startUpdatingLocation()
         UIApplication.shared.isIdleTimerDisabled = true
 
+        if let first = route?.steps.first {
+            voice.speak("Starting your \(activity.noun). \(first.instruction)")
+        } else {
+            voice.speak("Starting your \(activity.noun).")
+        }
+
         let started = startedAt ?? Date()
         if activity.group != .wheels, CMPedometer.isCadenceAvailable() {
             pedometer.startUpdates(from: started) { [weak self] data, _ in
@@ -229,6 +246,7 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
     }
 
     private func teardown() {
+        voice.stop()
         pedometer.stopUpdates()
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates = false
@@ -318,14 +336,30 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
 
         if state.arrived {
             statusNote = "You've arrived"
+            if !spokeArrival {
+                spokeArrival = true
+                voice.speak("You've arrived.")
+            }
             return
         }
 
-        // One tap of feedback as each turn gets close.
-        if let index = state.nextStepIndex, let toNext = state.distanceToNextM,
-           toNext < 40, hapticStep != index {
-            hapticStep = index
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // One tap of feedback as each turn gets close, and a spoken heads-up twice:
+        // about 150 m before and again right at the turn.
+        if let index = state.nextStepIndex, let step = state.nextStep, let toNext = state.distanceToNextM {
+            if toNext < 40, hapticStep != index {
+                hapticStep = index
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+            if step.type != 10 {
+                if toNext <= 160, toNext > 70, !spokenFar.contains(index) {
+                    spokenFar.insert(index)
+                    voice.speak(VoiceGuide.phrase(step, in: toNext))
+                } else if toNext <= 45, !spokenNear.contains(index) {
+                    spokenNear.insert(index)
+                    spokenFar.insert(index)
+                    voice.speak(step.instruction)
+                }
+            }
         }
 
         // Off the route for several fixes in a row means a real detour, not GPS noise.
@@ -340,6 +374,8 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
         rerouting = true
         lastRerouteAt = Date()
         statusNote = "Off route. Finding a way back..."
+        voice.speak("You're off route. Finding a way back.")
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
         defer { rerouting = false }
 
         // Rejoin the original route about 200 m ahead of the nearest point.
@@ -355,8 +391,11 @@ final class RunSession: NSObject, CLLocationManagerDelegate {
             self.engine = NavigationEngine(route: merged)
             offRouteCount = 0
             hapticStep = nil
+            spokenFar = []
+            spokenNear = []
             rerouteCount += 1
             statusNote = nil
+            voice.speak("New route found.")
         } catch {
             statusNote = "Can't reroute right now"
         }

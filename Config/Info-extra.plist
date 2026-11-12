@@ -5,6 +5,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>audio</string>
 	</array>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Lapsy shows your heart rate during an outing. It stays on your phone.</string>

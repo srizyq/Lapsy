@@ -11,27 +11,41 @@ struct RouteScore {
     var roundness: Double
     /// Known unpaved share, counted only when the user asked for roads.
     var unpavedPenalty: Double = 0
+    /// Main-road share, hill preference and green preference, already weighted.
+    var preferencePenalty: Double = 0
 
     var total: Double {
-        2.0 * distanceError + 1.5 * overlap + 0.6 * (1 - roundness) + 0.8 * unpavedPenalty
+        2.0 * distanceError + 1.5 * overlap + 0.6 * (1 - roundness) + 0.8 * unpavedPenalty + preferencePenalty
     }
 
     static let zero = RouteScore(distanceError: 0, overlap: 0, roundness: 0)
 }
 
 enum RouteScorer {
-    static func score(_ route: GeneratedRoute, requestedM: Double, preferPaved: Bool = false) -> RouteScore {
+    static func score(_ route: GeneratedRoute, requestedM: Double, options: RouteOptions = RouteOptions()) -> RouteScore {
         let error = requestedM > 0 ? abs(route.distanceM - requestedM) / requestedM : 0
         let points = resample(route.coordinates, every: 20)
-        guard points.count > 8 else {
+        var result: RouteScore
+        if options.shape != .loop {
+            // Out & back and point to point retrace or stay open on purpose.
+            result = RouteScore(distanceError: error, overlap: 0, roundness: 1)
+        } else if points.count > 8 {
+            result = RouteScore(distanceError: error, overlap: overlap(of: points), roundness: roundness(of: points))
+        } else {
             return RouteScore(distanceError: error, overlap: 1, roundness: 0)
         }
-        return RouteScore(
-            distanceError: error,
-            overlap: overlap(of: points),
-            roundness: roundness(of: points),
-            unpavedPenalty: preferPaved ? route.surface.unpaved : 0
-        )
+        result.unpavedPenalty = options.preferPaved ? route.surface.unpaved : 0
+
+        var preference = 0.0
+        if options.avoidBusyRoads { preference += 1.5 * route.busyShare }
+        let climbPerKm = min(route.ascentM / max(route.distanceM / 1000, 0.1), 40) / 40
+        switch options.elevationBias {
+        case .any: break
+        case .flat: preference += 1.5 * climbPerKm
+        case .hilly: preference += 1.5 * (1 - climbPerKm)
+        }
+        result.preferencePenalty = preference
+        return result
     }
 
     // MARK: - Geometry in local meters

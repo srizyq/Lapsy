@@ -49,6 +49,8 @@ struct GeneratedRoute {
     var surface: SurfaceMix
     /// ORS surface code for each coordinate (same length as `coordinates`), or empty.
     var surfaceCodes: [Int] = []
+    /// Share of the route on main roads (ORS "state road" and "road" way types).
+    var busyShare: Double = 0
     var steps: [RouteStep] = []
     var score: RouteScore = .zero
     var seed: Int = 0
@@ -90,7 +92,7 @@ struct RouteService {
                 "coordinates": [[start.longitude, start.latitude]],
                 "options": apiOptions,
                 "elevation": true,
-                "extra_info": ["surface"],
+                "extra_info": ["surface", "waytype"],
                 "instructions": true,
             ],
             profile: profile
@@ -100,17 +102,17 @@ struct RouteService {
     /// Directions through two or more points, used to reroute back onto a route.
     func route(
         through points: [CLLocationCoordinate2D],
-        profile: RoutingProfile
+        profile: RoutingProfile,
+        avoidSteps: Bool = false
     ) async throws -> GeneratedRoute {
-        try await send(
-            body: [
-                "coordinates": points.map { [$0.longitude, $0.latitude] },
-                "elevation": true,
-                "extra_info": ["surface"],
-                "instructions": true,
-            ],
-            profile: profile
-        )
+        var body: [String: Any] = [
+            "coordinates": points.map { [$0.longitude, $0.latitude] },
+            "elevation": true,
+            "extra_info": ["surface", "waytype"],
+            "instructions": true,
+        ]
+        if avoidSteps { body["options"] = ["avoid_features": ["steps"]] }
+        return try await send(body: body, profile: profile)
     }
 
     /// Flip to true once the `route` edge function is deployed (see supabase/functions/route).
@@ -187,8 +189,16 @@ struct RouteService {
             for i in start...min(end, coords.count - 1) { codes[i] = code }
         }
 
-        let steps = (feature.properties.segments ?? [])
-            .flatMap { $0.steps ?? [] }
+        var busy = 0.0
+        for entry in feature.properties.extras?.waytype?.summary ?? [] where entry.value == 1 || entry.value == 2 {
+            busy += total > 0 ? entry.distance / total : 0
+        }
+
+        // A route through several points has an "arrive" step at each; keep only the last.
+        var allSteps = (feature.properties.segments ?? []).flatMap { $0.steps ?? [] }
+        let lastIndex = allSteps.count - 1
+        allSteps = allSteps.enumerated().filter { $0.offset == lastIndex || $0.element.type != 10 }.map(\.element)
+        let steps = allSteps
             .map {
                 RouteStep(
                     instruction: $0.instruction ?? "",
@@ -208,6 +218,7 @@ struct RouteService {
             ascentM: feature.properties.ascent ?? 0,
             surface: mix,
             surfaceCodes: codes,
+            busyShare: min(1, busy),
             steps: steps
         )
     }
@@ -253,6 +264,7 @@ private struct ORSResponse: Decodable {
 
     struct Extras: Decodable {
         let surface: Surface?
+        let waytype: Surface?
     }
 
     struct Surface: Decodable {

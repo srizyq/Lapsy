@@ -90,3 +90,65 @@ final class AmenityFinder {
         results[polyline] = found
     }
 }
+
+// MARK: - Green areas
+
+/// Share of each route that runs through parks, woods and grass, from OpenStreetMap.
+enum GreenFinder {
+    /// One value 0...1 per route, or nil if the map service could not be reached.
+    static func shares(for routes: [GeneratedRoute]) async -> [Double]? {
+        let all = routes.flatMap(\.coordinates)
+        guard let minLat = all.map(\.latitude).min(), let maxLat = all.map(\.latitude).max(),
+              let minLon = all.map(\.longitude).min(), let maxLon = all.map(\.longitude).max() else { return nil }
+        let bbox = "\(minLat),\(minLon),\(maxLat),\(maxLon)"
+        let query = "[out:json][timeout:20];("
+            + "way[\"leisure\"~\"^(park|garden|nature_reserve|recreation_ground)$\"](\(bbox));"
+            + "way[\"landuse\"~\"^(forest|grass|meadow|recreation_ground|village_green|orchard)$\"](\(bbox));"
+            + "way[\"natural\"~\"^(wood|grassland|scrub|heath)$\"](\(bbox));"
+            + ");out geom;"
+
+        var request = URLRequest(url: URL(string: "https://overpass-api.de/api/interpreter")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 25
+        request.setValue("Lapsy/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = ("data=" + (query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")).data(using: .utf8)
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let elements = json["elements"] as? [[String: Any]] else { return nil }
+
+        struct Area { var points: [(Double, Double)]; var box: (Double, Double, Double, Double) }
+        let areas: [Area] = elements.compactMap { element in
+            guard let geometry = element["geometry"] as? [[String: Double]], geometry.count >= 4 else { return nil }
+            let pts = geometry.compactMap { g -> (Double, Double)? in
+                guard let lat = g["lat"], let lon = g["lon"] else { return nil }
+                return (lat, lon)
+            }
+            guard pts.count >= 4, let first = pts.first, let last = pts.last,
+                  first.0 == last.0, first.1 == last.1 else { return nil }
+            return Area(points: pts, box: (
+                pts.map(\.0).min()!, pts.map(\.0).max()!, pts.map(\.1).min()!, pts.map(\.1).max()!
+            ))
+        }
+
+        func inside(_ lat: Double, _ lon: Double, _ area: Area) -> Bool {
+            guard lat >= area.box.0, lat <= area.box.1, lon >= area.box.2, lon <= area.box.3 else { return false }
+            var result = false
+            var j = area.points.count - 1
+            for i in 0..<area.points.count {
+                let (yi, xi) = area.points[i], (yj, xj) = area.points[j]
+                if (yi > lat) != (yj > lat), lon < (xj - xi) * (lat - yi) / (yj - yi) + xi { result.toggle() }
+                j = i
+            }
+            return result
+        }
+
+        return routes.map { route in
+            guard !route.coordinates.isEmpty else { return 0 }
+            let green = route.coordinates.filter { c in areas.contains { inside(c.latitude, c.longitude, $0) } }.count
+            return Double(green) / Double(route.coordinates.count)
+        }
+    }
+}

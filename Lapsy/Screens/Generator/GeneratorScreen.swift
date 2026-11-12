@@ -8,27 +8,32 @@ struct GeneratorScreen: View {
     private var bound: Bindable<GeneratorModel> { Bindable(app.generator) }
     @State private var camera: MapCameraPosition = .automatic
     @State private var showStartSheet = false
+    @State private var showDestinationSheet = false
     @State private var gpxItem: ShareItem?
     @State private var gpxError: String?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                activityCard
-                mapCard
-                startCard
+                activityRow
+                mapPanel
                 if model.activity.canRoute {
-                    parametersCard
+                    controlsPanel
                 } else {
                     trackOnlyCard
                 }
                 if let route = model.route {
-                    previewCard(route)
+                    routeDetailsCard(route)
                 }
                 if let error = model.errorText {
                     Text(error)
                         .font(Typeface.body(13))
                         .foregroundStyle(Palette.destructive)
+                        .card()
+                } else if let note = model.noteText {
+                    Text(note)
+                        .font(Typeface.body(13))
+                        .foregroundStyle(Palette.textSecondary)
                         .card()
                 }
                 if model.route != nil || !model.activity.canRoute {
@@ -42,6 +47,11 @@ struct GeneratorScreen: View {
         }
         .sheet(item: $gpxItem) { item in
             ActivitySheet(items: [item.url]).presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showDestinationSheet) {
+            StartPointSheet(location: app.location, title: "Where to?", showCurrent: false) { picked, _ in
+                model.destination = picked
+            }
         }
         .sheet(isPresented: $showStartSheet) {
             StartPointSheet(location: app.location) { picked, isCurrent in
@@ -80,49 +90,91 @@ struct GeneratorScreen: View {
         .onChange(of: model.activity) { _, _ in model.reset() }
         .onChange(of: model.pathType) { _, _ in model.reset() }
         .onChange(of: model.avoidSteps) { _, _ in model.reset() }
+        .onChange(of: model.avoidBusyRoads) { _, _ in model.reset() }
+        .onChange(of: model.preferGreen) { _, _ in model.reset() }
+        .onChange(of: model.elevationBias) { _, _ in model.reset() }
+        .onChange(of: model.shape) { _, _ in model.reset() }
+        .onChange(of: model.destination) { _, _ in model.reset() }
     }
 
     // MARK: - Activity
 
-    private var activityCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            MonoLabel("Activity")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Activity.all) { activity in
-                        activityChip(activity)
+    private static let quickActivityIds = ["walk", "run", "trailrun", "hike"]
+
+    private var activityRow: some View {
+        let quick = Self.quickActivityIds.compactMap { id in Activity.all.first { $0.id == id } }
+        let other = !quick.contains(model.activity)
+        return HStack(spacing: 8) {
+            ForEach(quick) { activity in
+                activityTile(activity)
+            }
+            Menu {
+                ForEach(ActivityGroup.allCases, id: \.self) { group in
+                    Section(group.rawValue) {
+                        ForEach(Activity.all.filter { $0.group == group }) { activity in
+                            Button {
+                                model.setActivity(activity)
+                            } label: {
+                                Label(activity.name + (activity.canRoute ? "" : " (GPS only)"),
+                                      systemImage: Self.validSymbol(activity.icon))
+                            }
+                        }
                     }
                 }
+            } label: {
+                VStack(spacing: 6) {
+                    Image(systemName: other ? Self.validSymbol(model.activity.icon) : "chevron.down")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(other ? model.activity.name.uppercased() : "MORE")
+                        .font(Typeface.label(9, weight: .bold))
+                        .tracking(0.8)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(other ? Palette.primary : Palette.textSecondary)
+                .frame(width: 62)
+                .frame(maxHeight: .infinity)
+                .padding(.vertical, 12)
+                .background(other ? Palette.surface : Palette.well)
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.corner)
+                        .strokeBorder(other ? Palette.primary : Palette.hairline, lineWidth: Metrics.hairline)
+                )
             }
+            .accessibilityLabel("All activities")
         }
-        .card()
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func activityChip(_ activity: Activity) -> some View {
+    private func activityTile(_ activity: Activity) -> some View {
         let selected = activity == model.activity
         return Button {
             model.setActivity(activity)
         } label: {
-            HStack(spacing: 6) {
+            VStack(spacing: 6) {
                 Image(systemName: Self.validSymbol(activity.icon))
-                    .font(.system(size: 13, weight: .medium))
-                Text(activity.name)
-                    .font(Typeface.body(13, weight: .medium))
-                if !activity.canRoute {
-                    Text("GPS")
-                        .font(Typeface.label(8, weight: .bold))
-                        .opacity(0.7)
-                }
+                    .font(.system(size: 14, weight: .semibold))
+                Text(activity.name.uppercased())
+                    .font(Typeface.label(9, weight: .bold))
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
-            .foregroundStyle(selected ? Palette.onPrimary : Palette.textPrimary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(selected ? Palette.primary : Palette.well)
+            .foregroundStyle(selected ? Palette.primary : Palette.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(selected ? Palette.surface : Palette.well)
             .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
             .overlay(
                 RoundedRectangle(cornerRadius: Metrics.corner)
-                    .strokeBorder(selected ? .clear : Palette.hairline, lineWidth: Metrics.hairline)
+                    .strokeBorder(selected ? Palette.primary : Palette.hairline, lineWidth: Metrics.hairline)
             )
+            .overlay(alignment: .topTrailing) {
+                if selected {
+                    Circle().fill(Palette.primary).frame(width: 5, height: 5).padding(6)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -131,12 +183,32 @@ struct GeneratorScreen: View {
         UIImage(systemName: name) == nil ? "figure.mixed.cardio" : name
     }
 
-    // MARK: - Map
+    // MARK: - Map and numbers
 
-    private var mapCard: some View {
+    private var mapPanel: some View {
+        VStack(spacing: 0) {
+            map
+                .frame(height: 280)
+                .overlay(alignment: .bottom) { startOverlay }
+            Rectangle().fill(Palette.hairline).frame(height: Metrics.hairline)
+            statsStrip
+        }
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.corner)
+                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+        )
+    }
+
+    private var map: some View {
         Map(position: $camera) {
             Marker("Start", coordinate: model.start.coordinate)
                 .tint(Palette.primary)
+            if model.shape == .pointToPoint, let end = model.destination {
+                Marker("End", coordinate: end.coordinate)
+                    .tint(Palette.secondary)
+            }
             if let route = model.route {
                 MapPolyline(coordinates: route.coordinates)
                     .stroke(Palette.primary, lineWidth: 4)
@@ -163,15 +235,7 @@ struct GeneratorScreen: View {
                 }
             }
         }
-        .frame(height: 260)
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
-        .overlay(
-            RoundedRectangle(cornerRadius: Metrics.corner)
-                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
-        )
     }
-
-    // MARK: - Start point
 
     /// Why there is no real start point yet, or nil once there is one.
     private var startUnresolved: String? {
@@ -181,68 +245,106 @@ struct GeneratorScreen: View {
             : "Finding your location..."
     }
 
-    private var startCard: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                MonoLabel("Start point")
+    private var startOverlay: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 14))
+                .foregroundStyle(Palette.primary)
+            VStack(alignment: .leading, spacing: 3) {
+                MonoLabel("Start point", size: 9)
                 Text(startUnresolved == nil ? model.start.name : (app.location.denied ? "Not set" : "Finding your location..."))
-                    .font(Typeface.body(15, weight: .medium))
+                    .font(Typeface.headline(15))
                     .foregroundStyle(Palette.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
-            Spacer()
+            Spacer(minLength: 8)
             Button {
                 showStartSheet = true
             } label: {
-                Text("CHANGE")
-                    .font(Typeface.label(10, weight: .bold))
-                    .tracking(1)
-                    .foregroundStyle(Palette.textPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Metrics.corner)
-                            .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
-                    )
+                HStack(spacing: 5) {
+                    Text("CHANGE")
+                    Image(systemName: "pencil")
+                }
+                .font(Typeface.label(10, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(Palette.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Palette.well)
+                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.corner)
+                        .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+                )
             }
         }
-        .card()
+        .padding(12)
+        .background(Palette.neutral.opacity(0.88))
     }
 
-    // MARK: - Parameters
+    private var statsStrip: some View {
+        let route = model.route
+        let km = route.map { String(format: "%.1f", $0.distanceM / 1000) } ?? "--"
+        let time = route.map { Self.duration($0.durationS * model.activity.paceFactor) } ?? "--"
+        let climb = route.map { String(format: "+%.0f", $0.ascentM) } ?? "--"
+        let paved = route.map { "\(Int(($0.surface.paved * 100).rounded()))%" } ?? "--"
+        return HStack(spacing: 0) {
+            stripCell("Distance", km, "km")
+            stripDivider
+            stripCell("Est. time", time, "")
+            stripDivider
+            stripCell("Climb", climb, "m")
+            stripDivider
+            stripCell("Paved", paved, "")
+        }
+    }
 
-    private var parametersCard: some View {
+    private var stripDivider: some View {
+        Rectangle().fill(Palette.hairline).frame(width: Metrics.hairline)
+    }
+
+    private func stripCell(_ label: String, _ value: String, _ unit: String) -> some View {
+        VStack(spacing: 4) {
+            MonoLabel(label, size: 8)
+            Text(value)
+                .font(Typeface.headline(20))
+                .foregroundStyle(Palette.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(unit.isEmpty ? " " : unit.uppercased())
+                .font(Typeface.label(8))
+                .foregroundStyle(Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - Controls
+
+    private var controlsPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.primary)
-                Text("Tweak your route")
-                    .font(Typeface.headline(18))
-                    .foregroundStyle(Palette.textPrimary)
+                Circle().fill(Palette.primary).frame(width: 5, height: 5)
+                MonoLabel("Tweak your route", size: 10)
             }
-            HStack(alignment: .firstTextBaseline) {
-                MonoLabel("Distance")
-                Spacer()
-                Text("\(model.lengthKm, specifier: "%.1f")")
-                    .font(Typeface.headline(30))
-                    .foregroundStyle(Palette.textPrimary)
-                    .monospacedDigit()
-                Text("KM")
-                    .font(Typeface.label(11))
-                    .foregroundStyle(Palette.textSecondary)
-            }
-            Slider(value: bound.lengthKm, in: model.lengthRange, step: 0.5)
-                .tint(Palette.primary)
 
-            MonoLabel("Route shape")
+            if model.shape == .pointToPoint {
+                destinationBox
+            } else {
+                distanceBox
+            }
+
+            MonoLabel("Route shape", size: 9)
             HStack(spacing: 8) {
-                choiceChip("Loop", selected: true, enabled: true) {}
-                choiceChip("Out & back", selected: false, enabled: false) {}
-                choiceChip("Point to point", selected: false, enabled: false) {}
+                ForEach(RouteKind.allCases) { kind in
+                    choiceChip(kind.rawValue, selected: model.shape == kind, enabled: true) {
+                        model.shape = kind
+                    }
+                }
             }
 
-            MonoLabel("Path type")
+            MonoLabel("Path type", size: 9)
             HStack(spacing: 8) {
                 ForEach(PathType.allCases) { type in
                     choiceChip(type.rawValue, selected: model.pathType == type, enabled: true) {
@@ -251,78 +353,174 @@ struct GeneratorScreen: View {
                 }
             }
 
-            MonoLabel("Avoid")
-            toggleRow("Steps", isOn: bound.avoidSteps)
+            MonoLabel("Preferences", size: 9)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                toggleTile("Avoid steps", icon: "figure.stairs", isOn: bound.avoidSteps)
+                toggleTile("Avoid busy roads", icon: "car", isOn: bound.avoidBusyRoads)
+                toggleTile("Greener route", icon: "tree", isOn: bound.preferGreen)
+                biasTile
+            }
 
             Button {
                 Task { await generate() }
             } label: {
-                Text(model.loading
-                     ? "Finding best loop..."
-                     : (model.result == nil ? "Generate route" : "Generate new route"))
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text(model.loading
+                         ? "Finding your route..."
+                         : (model.shape == .pointToPoint ? "Find route"
+                            : (model.result == nil ? "Make a route" : "Make another route")))
+                }
             }
-            .buttonStyle(LapsyButtonStyle(kind: .primary))
-            .disabled(model.loading || startUnresolved != nil)
+            .buttonStyle(LapsyButtonStyle(kind: .outlined))
+            .disabled(model.loading || startUnresolved != nil
+                      || (model.shape == .pointToPoint && model.destination == nil))
         }
         .card()
+    }
+
+    private var distanceBox: some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                MonoLabel("Distance", size: 9)
+                Spacer()
+                Text("\(model.lengthKm, specifier: "%05.2f")")
+                    .font(Typeface.headline(30))
+                    .foregroundStyle(Palette.textPrimary)
+                    .monospacedDigit()
+                Text("KM")
+                    .font(Typeface.label(10))
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            Slider(value: bound.lengthKm, in: model.lengthRange, step: 0.5)
+                .tint(Palette.primary)
+            HStack {
+                Text("MIN \(Int(model.lengthRange.lowerBound)) KM")
+                Spacer()
+                Text("MAX \(Int(model.lengthRange.upperBound)) KM")
+            }
+            .font(Typeface.label(9))
+            .foregroundStyle(Palette.textMuted)
+        }
+        .padding(12)
+        .background(Palette.well)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.corner)
+                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+        )
+    }
+
+    private var destinationBox: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                MonoLabel("Going to", size: 9)
+                Text(model.destination?.name ?? "Not chosen yet")
+                    .font(Typeface.headline(16))
+                    .foregroundStyle(model.destination == nil ? Palette.textMuted : Palette.textPrimary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button {
+                showDestinationSheet = true
+            } label: {
+                Text(model.destination == nil ? "CHOOSE" : "CHANGE")
+                    .font(Typeface.label(10, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(Palette.onPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Palette.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+            }
+        }
+        .padding(12)
+        .background(Palette.well)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.corner)
+                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+        )
     }
 
     private func choiceChip(
         _ title: String, selected: Bool, enabled: Bool, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(Typeface.body(12, weight: .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .foregroundStyle(selected ? Palette.onPrimary : Palette.textPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(selected ? Palette.primary : Palette.well)
-                .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Metrics.corner)
-                        .strokeBorder(selected ? .clear : Palette.hairline, lineWidth: Metrics.hairline)
-                )
-                .opacity(enabled ? 1 : 0.35)
+            HStack(spacing: 6) {
+                if selected { Circle().fill(Palette.primary).frame(width: 5, height: 5) }
+                Text(title.uppercased())
+                    .font(Typeface.label(9, weight: .bold))
+                    .tracking(0.6)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(selected ? Palette.textPrimary : Palette.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(selected ? Palette.surface : Palette.well)
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+            .overlay(
+                RoundedRectangle(cornerRadius: Metrics.corner)
+                    .strokeBorder(selected ? Palette.primary : Palette.hairline, lineWidth: Metrics.hairline)
+            )
+            .opacity(enabled ? 1 : 0.35)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
     }
 
-    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+    private func toggleTile(_ title: String, icon: String, isOn: Binding<Bool>) -> some View {
         Button {
             isOn.wrappedValue.toggle()
         } label: {
-            HStack {
-                Text(title)
-                    .font(Typeface.body(14))
-                    .foregroundStyle(Palette.textPrimary)
-                Spacer()
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(isOn.wrappedValue ? Palette.primary : Palette.well)
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .strokeBorder(isOn.wrappedValue ? .clear : Palette.hairline, lineWidth: Metrics.hairline)
-                    )
-                    .overlay {
-                        if isOn.wrappedValue {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Palette.onPrimary)
-                        }
-                    }
-            }
-            .padding(12)
-            .background(Palette.well)
-            .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
-            .overlay(
-                RoundedRectangle(cornerRadius: Metrics.corner)
-                    .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
-            )
+            tileLabel(title, icon: icon, active: isOn.wrappedValue)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Tap to cycle: any, flatter, hillier.
+    private var biasTile: some View {
+        let all = ElevationBias.allCases
+        return Button {
+            let next = all[(all.firstIndex(of: model.elevationBias)! + 1) % all.count]
+            model.elevationBias = next
+        } label: {
+            tileLabel(model.elevationBias == .any ? "Hills: any" : "Hills: \(model.elevationBias.rawValue.lowercased())",
+                      icon: "chart.line.uptrend.xyaxis", active: model.elevationBias != .any)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tileLabel(_ title: String, icon: String, active: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(active ? Palette.primary : Palette.textMuted)
+                .frame(width: 18, height: 18)
+            Text(title.uppercased())
+                .font(Typeface.label(9, weight: .bold))
+                .tracking(0.5)
+                .foregroundStyle(active ? Palette.textPrimary : Palette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+            RoundedRectangle(cornerRadius: 2)
+                .fill(active ? Palette.primary : Palette.surface)
+                .frame(width: 10, height: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(active ? .clear : Palette.hairline, lineWidth: Metrics.hairline)
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(Palette.well)
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.corner)
+                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+        )
     }
 
     private var trackOnlyCard: some View {
@@ -338,30 +536,42 @@ struct GeneratorScreen: View {
         .card()
     }
 
-    // MARK: - Preview
+    // MARK: - Route details
 
-    private func previewCard(_ route: GeneratedRoute) -> some View {
-        let km = route.distanceM / 1000
-        let kcal = model.activity.kcalPerKmPerKg * 70 * km
+    private func routeDetailsCard(_ route: GeneratedRoute) -> some View {
+        let steepest = model.profilePoints.map(\.grade).max { abs($0) < abs($1) }
+        let destinationName = model.shape == .pointToPoint ? model.destination?.name : nil
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    MonoLabel("Your route", color: Palette.primary)
-                    Text("\(model.activity.name) loop")
-                        .font(Typeface.headline(22))
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mountain.2")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.primary)
+                        MonoLabel("Your route", size: 10)
+                    }
+                    Text("\(model.activity.name) \(model.shape.noun)")
+                        .font(Typeface.headline(20))
                         .foregroundStyle(Palette.textPrimary)
-                    Text("from \(model.start.name)")
+                    Text(destinationName.map { "to \($0)" } ?? "from \(model.start.name)")
                         .font(Typeface.body(12))
                         .foregroundStyle(Palette.textSecondary)
                         .lineLimit(1)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(String(format: "%.1f", km))
-                        .font(Typeface.headline(34))
+                if let steepest, abs(steepest) >= 1 {
+                    Text("STEEPEST \(Int(abs(steepest).rounded()))%")
+                        .font(Typeface.label(9, weight: .bold))
+                        .tracking(0.8)
                         .foregroundStyle(Palette.textPrimary)
-                        .monospacedDigit()
-                    MonoLabel("Kilometers", size: 8)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Palette.well)
+                        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Metrics.corner)
+                                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
+                        )
                 }
             }
 
@@ -386,26 +596,19 @@ struct GeneratorScreen: View {
                 }
             }
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                stat("Distance", String(format: "%.2f km", km))
-                stat("Est. time", Self.duration(route.durationS * model.activity.paceFactor))
-                stat("Climb", String(format: "+%.0f m", route.ascentM))
-                stat("Energy (est.)", String(format: "~%.0f kcal", kcal))
-            }
-
-            MonoLabel("Elevation")
+            MonoLabel("Elevation", size: 9)
             ElevationChart(points: model.profilePoints, scrub: bound.scrubIndex)
                 .frame(height: 150)
 
-            MonoLabel("Surface")
+            MonoLabel("Surface", size: 9)
             surfaceBar(route.surface)
             surfaceLegend(route.surface)
 
             #if DEBUG
             Text(String(
-                format: "debug: off target %.0f%%  retraced %.0f%%  roundness %.2f  tried %d",
+                format: "debug: off target %.0f%%  retraced %.0f%%  roundness %.2f  busy %.0f%%  tried %d",
                 route.score.distanceError * 100, route.score.overlap * 100,
-                route.score.roundness, model.result?.requested ?? 0
+                route.score.roundness, route.busyShare * 100, model.result?.requested ?? 0
             ))
             .font(Typeface.label(9))
             .foregroundStyle(Palette.textMuted)
@@ -428,26 +631,6 @@ struct GeneratorScreen: View {
                 if let a = amenity, a.toilets > 0 { Tag(text: "Restrooms (\(a.toilets))", icon: "figure.stand") }
             }
         }
-    }
-
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            MonoLabel(label, size: 9)
-            Text(value)
-                .font(Typeface.headline(17))
-                .foregroundStyle(Palette.textPrimary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.well)
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
-        .overlay(
-            RoundedRectangle(cornerRadius: Metrics.corner)
-                .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
-        )
     }
 
     private func surfaceBar(_ mix: SurfaceMix) -> some View {
@@ -520,9 +703,22 @@ struct GeneratorScreen: View {
         Button {
             startRun()
         } label: {
-            Text("Start \(model.activity.noun)")
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill")
+                Text(startTitle)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.right")
+            }
+            .padding(.horizontal, 4)
         }
         .buttonStyle(LapsyButtonStyle(kind: .primary))
+    }
+
+    private var startTitle: String {
+        if let route = model.route, model.activity.canRoute {
+            return "Start \(model.activity.noun) · \(String(format: "%.1f", route.distanceM / 1000)) km"
+        }
+        return "Start \(model.activity.noun)"
     }
 
     private func isSaved(_ route: GeneratedRoute) -> Bool {

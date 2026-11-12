@@ -7,6 +7,12 @@ final class GeneratorModel {
     var activity: Activity = Activity.all[0]
     var pathType: PathType = .mixed
     var avoidSteps = false
+    var avoidBusyRoads = false
+    var preferGreen = false
+    var elevationBias: ElevationBias = .any
+    var shape: RouteKind = .loop
+    /// Where a point-to-point route ends.
+    var destination: StartPoint?
     var lengthKm = 5.0
     var start = StartPoint.fallback
     var usingCurrentLocation = true
@@ -15,6 +21,8 @@ final class GeneratorModel {
     var selected = 0
     var loading = false
     var errorText: String?
+    /// Something worth knowing about the result that is not an error.
+    var noteText: String?
     var round = 0
     /// Index into `profilePoints` while the user drags on the elevation chart.
     var scrubIndex: Int?
@@ -66,6 +74,7 @@ final class GeneratorModel {
     func reset() {
         result = nil
         errorText = nil
+        noteText = nil
         selected = 0
         round = 0
         scrubIndex = nil
@@ -77,21 +86,33 @@ final class GeneratorModel {
         scrubIndex = nil
     }
 
+    var options: RouteOptions {
+        var o = RouteOptions(pathType: pathType, avoidSteps: avoidSteps)
+        o.avoidBusyRoads = avoidBusyRoads
+        o.preferGreen = preferGreen
+        o.elevationBias = elevationBias
+        o.shape = shape
+        o.destination = destination?.coordinate
+        return o
+    }
+
     func generate() async {
         guard let profile else { return }
         loading = true
         errorText = nil
+        noteText = nil
         if result != nil { round += 1 }
         defer { loading = false }
         do {
-            let generated = try await RouteGenerator().bestLoop(
+            let generated = try await RouteGenerator().bestRoute(
                 start: start.coordinate,
                 lengthM: lengthKm * 1000,
                 profile: profile,
                 round: round,
-                options: RouteOptions(pathType: pathType, avoidSteps: avoidSteps)
+                options: options
             )
             result = generated
+            noteText = generated.note
             selected = 0
             scrubIndex = nil
         } catch {

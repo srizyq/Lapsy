@@ -5,6 +5,9 @@ import MapKit
 struct StartPointSheet: View {
     @Environment(\.dismiss) private var dismiss
     var location: LocationProvider
+    var title = "Start point"
+    /// The current-location shortcut only makes sense for a start point.
+    var showCurrent = true
     /// Called with the chosen point and whether it is the live current location.
     var onPick: (StartPoint, Bool) -> Void
 
@@ -14,7 +17,7 @@ struct StartPointSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                MonoLabel("Start point", color: Palette.primary)
+                MonoLabel(title, color: Palette.primary)
                 Spacer()
                 Button("Close") { dismiss() }
                     .font(Typeface.label(11, weight: .bold))
@@ -38,7 +41,7 @@ struct StartPointSheet: View {
                     .strokeBorder(Palette.hairline, lineWidth: Metrics.hairline)
             )
 
-            Button {
+            if showCurrent { Button {
                 if let c = location.coordinate {
                     onPick(StartPoint(name: "Current location", coordinate: c), true)
                     dismiss()
@@ -53,7 +56,7 @@ struct StartPointSheet: View {
                          : (location.coordinate == nil ? "Finding your location..." : "Use current location"))
                 }
             }
-            .buttonStyle(LapsyButtonStyle(kind: .outlined))
+            .buttonStyle(LapsyButtonStyle(kind: .outlined)) }
 
             ScrollView {
                 LazyVStack(spacing: 0) {

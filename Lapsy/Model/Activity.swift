@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 enum ActivityGroup: String, CaseIterable {
     case onFoot = "On foot"
@@ -101,11 +102,43 @@ enum PathType: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum RouteKind: String, CaseIterable, Identifiable {
+    case loop = "Loop"
+    case outAndBack = "Out & back"
+    case pointToPoint = "Point to point"
+
+    var id: String { rawValue }
+
+    /// How the route is named: "Walk loop", "Run out & back".
+    var noun: String {
+        switch self {
+        case .loop: "loop"
+        case .outAndBack: "out & back"
+        case .pointToPoint: "one-way route"
+        }
+    }
+}
+
+enum ElevationBias: String, CaseIterable, Identifiable {
+    case any = "Any"
+    case flat = "Flatter"
+    case hilly = "Hillier"
+
+    var id: String { rawValue }
+}
+
 /// What the routing API is asked to avoid, and how candidates are judged.
 struct RouteOptions {
     var avoidSteps = false
     /// Prefer the candidate with the least known unpaved surface.
     var preferPaved = false
+    /// Prefer the candidate with the least ground on main roads.
+    var avoidBusyRoads = false
+    var elevationBias: ElevationBias = .any
+    var preferGreen = false
+    var shape: RouteKind = .loop
+    /// Where a point-to-point route ends.
+    var destination: CLLocationCoordinate2D?
 
     init() {}
 
